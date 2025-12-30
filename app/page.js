@@ -289,6 +289,23 @@ const processData = (data, stripeFeePercent = 7.5, adSpendData = {}, dateRangeDa
     }
   });
 
+  // SUBSCRIBER LOGIC - Customers who paid AFTER the 7-day trial period
+  const subscribers = new Set();
+  customerTransactions.forEach((txs, customerId) => {
+    const trialDate = trialCustomers.get(customerId);
+    if (!trialDate) return;
+    
+    for (const tx of txs) {
+      if ((tx.status === 'Paid' || tx.status === 'paid') && tx.amount > 2.00) {
+        const daysSinceTrial = Math.floor((tx.date - trialDate) / (1000 * 60 * 60 * 24));
+        if (daysSinceTrial > 7) {
+          subscribers.add(customerId);
+          break; // Only need to find one subscription payment after trial
+        }
+      }
+    }
+  });
+
   // REFUND BREAKDOWN - COMPREHENSIVE FIX
   let trialRefunds = { count: 0, value: 0 };
   let subscriptionRefunds = { count: 0, value: 0 };
@@ -669,6 +686,7 @@ const processData = (data, stripeFeePercent = 7.5, adSpendData = {}, dateRangeDa
       totalTrials: trialCustomers.size,
       activeTrials: activeTrials.size,
       totalPaid: paidCustomers.size,
+      totalSubscribers: subscribers.size,
       totalGrossRevenue: totalGrossRevenue.toFixed(2),
       totalStripeFees: totalStripeFees.toFixed(2),
       totalRefunds: totalRefunds.toFixed(2),
@@ -1206,14 +1224,14 @@ export default function WellnessDashboard() {
                     />
                     <MetricCard 
                       label="Paid Customers"
-                      value={data.summary.totalPaid.toLocaleString()}
-                      subtext="Converted to paid"
+                      value={data.summary.totalSubscribers.toLocaleString()}
+                      subtext="Paid after trial"
                       icon={<CheckCircle className="w-5 h-5" />}
                       color="text-green-400"
                     />
                     <MetricCard 
                       label="Conversion Rate"
-                      value={data.summary.totalTrials > 0 ? `${((data.summary.totalPaid / data.summary.totalTrials) * 100).toFixed(1)}%` : '0%'}
+                      value={data.summary.totalTrials > 0 ? `${((data.summary.totalSubscribers / data.summary.totalTrials) * 100).toFixed(1)}%` : '0%'}
                       subtext="Trial → Subscription"
                       icon={<TrendingUp className="w-5 h-5" />}
                       color="text-emerald-400"
@@ -1245,7 +1263,7 @@ export default function WellnessDashboard() {
                     />
                     <MetricCard 
                       label="LTV M0"
-                      value={`$${data.cohortTable[0]?.ltvWaterfall || '0.00'}`}
+                      value={data.cohortTable[0]?.ltvWaterfall || '$0.00'}
                       subtext="Latest cohort LTV"
                       icon={<DollarSign className="w-5 h-5" />}
                       color="text-yellow-400"
@@ -2216,9 +2234,10 @@ export default function WellnessDashboard() {
 
                   // Extract demographics
                   const customers = new Map();
-                  const femaleNames = ['jennifer', 'amanda', 'ashley', 'sarah', 'melissa', 'stephanie', 'laura', 'jessica', 'emily', 'nicole', 'karen', 'michelle', 'lisa', 'angela', 'kimberly', 'rebecca', 'amy', 'anna', 'christina', 'samantha', 'maria', 'veronica', 'aracely', 'rossy', 'raquel', 'divya', 'priya', 'ranjitha', 'patel', 'singh', 'tetiana', 'aleksandra', 'jelena'];
+                  const femaleNames = ['jennifer', 'amanda', 'ashley', 'sarah', 'melissa', 'stephanie', 'laura', 'jessica', 'emily', 'nicole', 'karen', 'michelle', 'lisa', 'angela', 'kimberly', 'rebecca', 'amy', 'anna', 'christina', 'samantha', 'maria', 'veronica', 'aracely', 'rossy', 'raquel', 'divya', 'priya', 'ranjitha', 'tetiana', 'aleksandra', 'jelena', 'elizabeth', 'mary', 'patricia', 'linda', 'barbara', 'susan', 'nancy', 'donna', 'carol', 'sandra', 'ashley', 'deborah', 'rachel', 'catherine', 'brittany', 'megan', 'nicole', 'heather', 'katherine', 'julie', 'tiffany', 'amber', 'danielle', 'monica'];
                   const hispanicNames = ['veronica', 'aracely', 'rossy', 'raquel', 'maria', 'garcia', 'rodriguez', 'martinez', 'hernandez', 'lopez', 'gonzalez'];
-                  const southAsianNames = ['divya', 'priya', 'ranjitha', 'patel', 'singh', 'kumar', 'sharma'];
+                  const southAsianNames = ['divya', 'priya', 'ranjitha', 'kumar', 'sharma'];
+                  const southAsianLastNames = ['patel', 'singh']; // Common last names, not gender indicators
                   const easternEuropeanNames = ['tetiana', 'aleksandra', 'jelena', 'svetlana', 'natasha'];
 
                   rawData.forEach(row => {
@@ -2230,15 +2249,17 @@ export default function WellnessDashboard() {
                     
                     const nameLower = (name || email).toLowerCase();
                     
-                    // Determine gender
-                    const isFemale = femaleNames.some(fn => nameLower.includes(fn));
+                    // Determine gender - exclude last names from female detection
+                    const isFemale = femaleNames.some(fn => nameLower.includes(fn)) && 
+                                    !southAsianLastNames.some(ln => nameLower === ln);
                     const gender = isFemale ? 'Female' : 'Male';
                     
                     // Determine ethnicity
                     let ethnicity = 'Anglo/Western European';
                     if (hispanicNames.some(hn => nameLower.includes(hn))) {
                       ethnicity = 'Hispanic/Latina';
-                    } else if (southAsianNames.some(san => nameLower.includes(san))) {
+                    } else if (southAsianNames.some(san => nameLower.includes(san)) || 
+                               southAsianLastNames.some(ln => nameLower.includes(ln))) {
                       ethnicity = 'South Asian';
                     } else if (easternEuropeanNames.some(een => nameLower.includes(een))) {
                       ethnicity = 'Eastern European';
@@ -2449,6 +2470,120 @@ export default function WellnessDashboard() {
                   color="text-purple-400" 
                 />
               </div>
+
+              {/* LTV Over Time Chart */}
+              <Section title="LTV M0 Trend Over Time" icon={<TrendingUp className="text-emerald-400" />}>
+                <div className="p-6">
+                  <div className="h-80">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={data.cohortTable.slice().reverse()}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                        <XAxis 
+                          dataKey="date" 
+                          stroke="#666"
+                          tick={{ fill: '#999', fontSize: 11 }}
+                          angle={-45}
+                          textAnchor="end"
+                          height={80}
+                        />
+                        <YAxis 
+                          stroke="#666" 
+                          tick={{ fill: '#999' }}
+                          label={{ value: 'LTV ($)', angle: -90, position: 'insideLeft', fill: '#999' }}
+                        />
+                        <Tooltip 
+                          contentStyle={{ 
+                            backgroundColor: '#0f172a', 
+                            borderColor: '#333',
+                            borderRadius: '8px'
+                          }}
+                          formatter={(value) => {
+                            // Remove $ and format as number
+                            const numValue = parseFloat(String(value).replace('$', ''));
+                            return [`$${numValue.toFixed(2)}`, 'LTV M0'];
+                          }}
+                        />
+                        <Legend />
+                        <Line 
+                          type="monotone" 
+                          dataKey="ltvWaterfall" 
+                          stroke="#10b981" 
+                          strokeWidth={3}
+                          dot={{ fill: '#10b981', r: 4 }}
+                          name="LTV M0"
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+
+                  {/* Trend Analysis */}
+                  {(() => {
+                    const cohorts = data.cohortTable.slice().reverse();
+                    if (cohorts.length < 2) return null;
+                    
+                    const latest = parseFloat(cohorts[cohorts.length - 1].ltvWaterfall.replace('$', ''));
+                    const previous = parseFloat(cohorts[cohorts.length - 2].ltvWaterfall.replace('$', ''));
+                    const change = latest - previous;
+                    const changePercent = previous > 0 ? ((change / previous) * 100).toFixed(1) : 0;
+                    const isPositive = change > 0;
+
+                    // Calculate overall trend
+                    const oldest = parseFloat(cohorts[0].ltvWaterfall.replace('$', ''));
+                    const overallChange = latest - oldest;
+                    const overallPercent = oldest > 0 ? ((overallChange / oldest) * 100).toFixed(1) : 0;
+                    const overallPositive = overallChange > 0;
+
+                    return (
+                      <div className="mt-6 p-5 bg-gray-800/50 border border-gray-700 rounded-lg">
+                        <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                          <TrendingUp className="w-5 h-5 text-emerald-400" />
+                          LTV Trend Analysis
+                        </h3>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div>
+                            <div className="text-sm text-gray-400 mb-1">Latest LTV M0</div>
+                            <div className="text-2xl font-bold text-emerald-400">
+                              ${latest.toFixed(2)}
+                            </div>
+                            <div className="text-xs text-gray-500 mt-1">
+                              {cohorts[cohorts.length - 1].date}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-sm text-gray-400 mb-1">vs Previous Cohort</div>
+                            <div className={`text-2xl font-bold ${isPositive ? 'text-green-400' : 'text-red-400'}`}>
+                              {isPositive ? '+' : ''}{change.toFixed(2)}
+                            </div>
+                            <div className={`text-xs mt-1 ${isPositive ? 'text-green-400' : 'text-red-400'}`}>
+                              {isPositive ? '↑' : '↓'} {Math.abs(parseFloat(changePercent))}% {isPositive ? 'increase' : 'decrease'}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-sm text-gray-400 mb-1">Overall Trend</div>
+                            <div className={`text-2xl font-bold ${overallPositive ? 'text-green-400' : 'text-red-400'}`}>
+                              {overallPositive ? '+' : ''}{overallChange.toFixed(2)}
+                            </div>
+                            <div className={`text-xs mt-1 ${overallPositive ? 'text-green-400' : 'text-red-400'}`}>
+                              {overallPositive ? '↑' : '↓'} {Math.abs(parseFloat(overallPercent))}% since {cohorts[0].date}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Insights */}
+                        <div className="mt-4 pt-4 border-t border-gray-700">
+                          <div className="text-sm text-gray-300">
+                            <strong>Insight:</strong> {
+                              isPositive 
+                                ? `Your LTV is growing! Latest cohort generates $${change.toFixed(2)} more per customer than previous cohort. ${overallPositive ? `Overall up $${overallChange.toFixed(2)} from earliest cohort.` : ''}`
+                                : `LTV declined by $${Math.abs(change).toFixed(2)} from previous cohort. ${!overallPositive ? `Overall down $${Math.abs(overallChange).toFixed(2)} from earliest cohort.` : ''} Consider analyzing conversion funnel and retention.`
+                            }
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              </Section>
 
               {/* Cohort Table */}
               <Section title="Cohort Performance Table" icon={<FileText className="text-indigo-400" />}>
