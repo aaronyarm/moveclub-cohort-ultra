@@ -2208,8 +2208,19 @@ export default function WellnessDashboard() {
             )}
           </Tab>
 
-          {/* Tab 6: Avatar Analysis */}
-          <Tab label="👤 Avatar">
+          {/* Tab 6: USERS Analytics */}
+          <Tab label="👥 Users">
+            {rawData && data && (
+              <div className="space-y-6">
+                
+                {(() => {
+                  // Calculate comprehensive user metrics
+                  const dateCol = 'Created date (UTC)' in rawData[0] ? 'Created date (UTC)' : 'Date' in rawData[0] ? 'Date' : 'Transaction Date' in rawData[0] ? 'Transaction Date' : null;
+                  const customerCol = 'Customer ID' in rawData[0] ? 'Customer ID' : 'Customer' in rawData[0] ? 'Customer' : null;
+                  const amountCol = 'Amount' in rawData[0] ? 'Amount' : 'Transaction Amount' in rawData[0] ? 'Transaction Amount' : null;
+                  const statusCol = 'Status' in rawData[0] ? 'Status' : 'Payment Status' in rawData[0] ? 'Payment Status' : null;
+                  const currencyCol = 'Currency' in rawData[0] ? 'Currency' : null;
+                  const productCol = 'Product' in rawData[0] ? 'Product' : 'Product Name' in rawData[0] ? 'Product Name' : 'Plan' in rawData[0] ? 'Plan' : null;
             {rawData && (
               <div className="space-y-6">
                 
