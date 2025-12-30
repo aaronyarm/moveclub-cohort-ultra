@@ -278,17 +278,6 @@ const processData = (data, stripeFeePercent = 7.5, adSpendData = {}, dateRangeDa
     ? (lateConverted / totalConverted * 100).toFixed(1)
     : 0;
 
-  // ACTIVE TRIAL LOGIC
-  const activeTrialThreshold = new Date(maxDate);
-  activeTrialThreshold.setDate(activeTrialThreshold.getDate() - 7);
-  
-  const activeTrials = new Set();
-  trialCustomers.forEach((trialDate, customerId) => {
-    if (trialDate >= activeTrialThreshold && !paidCustomers.has(customerId)) {
-      activeTrials.add(customerId);
-    }
-  });
-
   // SUBSCRIBER LOGIC - Customers who paid AFTER the 7-day trial period
   const subscribers = new Set();
   customerTransactions.forEach((txs, customerId) => {
@@ -303,6 +292,17 @@ const processData = (data, stripeFeePercent = 7.5, adSpendData = {}, dateRangeDa
           break; // Only need to find one subscription payment after trial
         }
       }
+    }
+  });
+
+  // ACTIVE TRIAL LOGIC - People who took $0.99, haven't upgraded, still within 7 days
+  const activeTrialThreshold = new Date(maxDate);
+  activeTrialThreshold.setDate(activeTrialThreshold.getDate() - 7);
+  
+  const activeTrials = new Set();
+  trialCustomers.forEach((trialDate, customerId) => {
+    if (trialDate >= activeTrialThreshold && !subscribers.has(customerId)) {
+      activeTrials.add(customerId);
     }
   });
 
@@ -1241,7 +1241,7 @@ export default function WellnessDashboard() {
                   <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                     {/* Row 2: Performance Metrics */}
                     <MetricCard 
-                      label="Success Rate"
+                      label="Payment Success Rate"
                       value={`${enhancedAnalytics.summary.overallSuccessRate}%`}
                       subtext={`${enhancedAnalytics.summary.successfulTransactions} successful`}
                       icon={<CheckCircle className="w-5 h-5" />}
@@ -2472,11 +2472,14 @@ export default function WellnessDashboard() {
               </div>
 
               {/* LTV Over Time Chart */}
-              <Section title="LTV M0 Trend Over Time" icon={<TrendingUp className="text-emerald-400" />}>
+              <Section title="LTV M0 Trend (Week over Week)" icon={<TrendingUp className="text-emerald-400" />}>
                 <div className="p-6">
                   <div className="h-80">
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={data.cohortTable.slice().reverse()}>
+                      <LineChart data={data.cohortTable.slice().reverse().map(row => ({
+                        date: row.date,
+                        ltv: parseFloat(String(row.ltvWaterfall).replace('$', ''))
+                      }))}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#333" />
                         <XAxis 
                           dataKey="date" 
@@ -2490,6 +2493,7 @@ export default function WellnessDashboard() {
                           stroke="#666" 
                           tick={{ fill: '#999' }}
                           label={{ value: 'LTV ($)', angle: -90, position: 'insideLeft', fill: '#999' }}
+                          domain={[0, 'auto']}
                         />
                         <Tooltip 
                           contentStyle={{ 
@@ -2497,16 +2501,12 @@ export default function WellnessDashboard() {
                             borderColor: '#333',
                             borderRadius: '8px'
                           }}
-                          formatter={(value) => {
-                            // Remove $ and format as number
-                            const numValue = parseFloat(String(value).replace('$', ''));
-                            return [`$${numValue.toFixed(2)}`, 'LTV M0'];
-                          }}
+                          formatter={(value) => [`$${parseFloat(value).toFixed(2)}`, 'LTV M0']}
                         />
                         <Legend />
                         <Line 
                           type="monotone" 
-                          dataKey="ltvWaterfall" 
+                          dataKey="ltv" 
                           stroke="#10b981" 
                           strokeWidth={3}
                           dot={{ fill: '#10b981', r: 4 }}
@@ -2522,13 +2522,33 @@ export default function WellnessDashboard() {
                     if (cohorts.length < 2) return null;
                     
                     const latest = parseFloat(cohorts[cohorts.length - 1].ltvWaterfall.replace('$', ''));
+                    const latestDate = cohorts[cohorts.length - 1].date;
+                    
                     const previous = parseFloat(cohorts[cohorts.length - 2].ltvWaterfall.replace('$', ''));
+                    const previousDate = cohorts[cohorts.length - 2].date;
+                    
                     const change = latest - previous;
                     const changePercent = previous > 0 ? ((change / previous) * 100).toFixed(1) : 0;
                     const isPositive = change > 0;
 
+                    // Calculate month-over-month (if we have data from 4+ weeks ago)
+                    let monthAgo = null;
+                    let monthAgoDate = null;
+                    let momChange = null;
+                    let momPercent = null;
+                    let momPositive = false;
+                    
+                    if (cohorts.length >= 5) {
+                      monthAgo = parseFloat(cohorts[cohorts.length - 5].ltvWaterfall.replace('$', ''));
+                      monthAgoDate = cohorts[cohorts.length - 5].date;
+                      momChange = latest - monthAgo;
+                      momPercent = monthAgo > 0 ? ((momChange / monthAgo) * 100).toFixed(1) : 0;
+                      momPositive = momChange > 0;
+                    }
+
                     // Calculate overall trend
                     const oldest = parseFloat(cohorts[0].ltvWaterfall.replace('$', ''));
+                    const oldestDate = cohorts[0].date;
                     const overallChange = latest - oldest;
                     const overallPercent = oldest > 0 ? ((overallChange / oldest) * 100).toFixed(1) : 0;
                     const overallPositive = overallChange > 0;
@@ -2539,44 +2559,97 @@ export default function WellnessDashboard() {
                           <TrendingUp className="w-5 h-5 text-emerald-400" />
                           LTV Trend Analysis
                         </h3>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          <div>
-                            <div className="text-sm text-gray-400 mb-1">Latest LTV M0</div>
-                            <div className="text-2xl font-bold text-emerald-400">
-                              ${latest.toFixed(2)}
-                            </div>
-                            <div className="text-xs text-gray-500 mt-1">
-                              {cohorts[cohorts.length - 1].date}
-                            </div>
+                        
+                        {/* Current LTV */}
+                        <div className="mb-6 p-4 bg-emerald-900/20 border border-emerald-800 rounded-lg">
+                          <div className="text-sm text-emerald-300 mb-1">Latest Cohort LTV M0</div>
+                          <div className="text-4xl font-bold text-emerald-400">
+                            ${latest.toFixed(2)}
                           </div>
-                          <div>
-                            <div className="text-sm text-gray-400 mb-1">vs Previous Cohort</div>
-                            <div className={`text-2xl font-bold ${isPositive ? 'text-green-400' : 'text-red-400'}`}>
+                          <div className="text-sm text-emerald-300 mt-1">
+                            Cohort: {latestDate}
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                          {/* Week over Week */}
+                          <div className="p-4 bg-gray-900/50 border border-gray-700 rounded-lg">
+                            <div className="text-sm text-gray-400 mb-2">Week over Week (WoW)</div>
+                            <div className="text-xs text-gray-500 mb-3">
+                              {latestDate} vs {previousDate}
+                            </div>
+                            <div className={`text-3xl font-bold ${isPositive ? 'text-green-400' : 'text-red-400'} mb-2`}>
                               {isPositive ? '+' : ''}{change.toFixed(2)}
                             </div>
-                            <div className={`text-xs mt-1 ${isPositive ? 'text-green-400' : 'text-red-400'}`}>
+                            <div className={`text-sm ${isPositive ? 'text-green-400' : 'text-red-400'}`}>
                               {isPositive ? '↑' : '↓'} {Math.abs(parseFloat(changePercent))}% {isPositive ? 'increase' : 'decrease'}
                             </div>
                           </div>
-                          <div>
-                            <div className="text-sm text-gray-400 mb-1">Overall Trend</div>
-                            <div className={`text-2xl font-bold ${overallPositive ? 'text-green-400' : 'text-red-400'}`}>
-                              {overallPositive ? '+' : ''}{overallChange.toFixed(2)}
+
+                          {/* Month over Month */}
+                          {monthAgo !== null ? (
+                            <div className="p-4 bg-gray-900/50 border border-gray-700 rounded-lg">
+                              <div className="text-sm text-gray-400 mb-2">Month over Month (MoM)</div>
+                              <div className="text-xs text-gray-500 mb-3">
+                                {latestDate} vs {monthAgoDate} (~4 weeks)
+                              </div>
+                              <div className={`text-3xl font-bold ${momPositive ? 'text-green-400' : 'text-red-400'} mb-2`}>
+                                {momPositive ? '+' : ''}{momChange.toFixed(2)}
+                              </div>
+                              <div className={`text-sm ${momPositive ? 'text-green-400' : 'text-red-400'}`}>
+                                {momPositive ? '↑' : '↓'} {Math.abs(parseFloat(momPercent))}% {momPositive ? 'increase' : 'decrease'}
+                              </div>
                             </div>
-                            <div className={`text-xs mt-1 ${overallPositive ? 'text-green-400' : 'text-red-400'}`}>
-                              {overallPositive ? '↑' : '↓'} {Math.abs(parseFloat(overallPercent))}% since {cohorts[0].date}
+                          ) : (
+                            <div className="p-4 bg-gray-900/50 border border-gray-700 rounded-lg flex items-center justify-center">
+                              <div className="text-center text-gray-500">
+                                <div className="text-sm mb-1">Month over Month</div>
+                                <div className="text-xs">Need 5+ cohorts for MoM</div>
+                              </div>
                             </div>
+                          )}
+                        </div>
+
+                        {/* Overall Trend */}
+                        <div className="p-4 bg-gray-900/50 border border-gray-700 rounded-lg">
+                          <div className="text-sm text-gray-400 mb-2">Overall Trend</div>
+                          <div className="text-xs text-gray-500 mb-3">
+                            {latestDate} vs {oldestDate} (all time)
+                          </div>
+                          <div className={`text-2xl font-bold ${overallPositive ? 'text-green-400' : 'text-red-400'} mb-2`}>
+                            {overallPositive ? '+' : ''}{overallChange.toFixed(2)}
+                          </div>
+                          <div className={`text-sm ${overallPositive ? 'text-green-400' : 'text-red-400'}`}>
+                            {overallPositive ? '↑' : '↓'} {Math.abs(parseFloat(overallPercent))}% since {oldestDate}
                           </div>
                         </div>
 
                         {/* Insights */}
                         <div className="mt-4 pt-4 border-t border-gray-700">
-                          <div className="text-sm text-gray-300">
-                            <strong>Insight:</strong> {
-                              isPositive 
-                                ? `Your LTV is growing! Latest cohort generates $${change.toFixed(2)} more per customer than previous cohort. ${overallPositive ? `Overall up $${overallChange.toFixed(2)} from earliest cohort.` : ''}`
-                                : `LTV declined by $${Math.abs(change).toFixed(2)} from previous cohort. ${!overallPositive ? `Overall down $${Math.abs(overallChange).toFixed(2)} from earliest cohort.` : ''} Consider analyzing conversion funnel and retention.`
-                            }
+                          <div className="text-sm text-gray-300 space-y-2">
+                            <div>
+                              <strong>Week over Week:</strong> {
+                                isPositive 
+                                  ? `✅ Growing! Latest cohort (${latestDate}) generates $${change.toFixed(2)} more per customer than ${previousDate}.`
+                                  : `⚠️ Declining. Latest cohort (${latestDate}) generates $${Math.abs(change).toFixed(2)} less per customer than ${previousDate}.`
+                              }
+                            </div>
+                            {monthAgo !== null && (
+                              <div>
+                                <strong>Month over Month:</strong> {
+                                  momPositive
+                                    ? `✅ Up $${momChange.toFixed(2)} (+${Math.abs(parseFloat(momPercent))}%) vs 4 weeks ago.`
+                                    : `⚠️ Down $${Math.abs(momChange).toFixed(2)} (-${Math.abs(parseFloat(momPercent))}%) vs 4 weeks ago.`
+                                }
+                              </div>
+                            )}
+                            <div>
+                              <strong>Overall:</strong> {
+                                overallPositive
+                                  ? `📈 Strong growth! Up $${overallChange.toFixed(2)} (+${Math.abs(parseFloat(overallPercent))}%) since ${oldestDate}.`
+                                  : `📉 Declining trend. Down $${Math.abs(overallChange).toFixed(2)} (-${Math.abs(parseFloat(overallPercent))}%) since ${oldestDate}. Review conversion funnel.`
+                              }
+                            </div>
                           </div>
                         </div>
                       </div>
