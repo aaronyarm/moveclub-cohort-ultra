@@ -2209,67 +2209,608 @@ export default function WellnessDashboard() {
           </Tab>
 
 
-          {/* Tab 6: USERS Analytics - Coming Soon */}
+          {/* Tab 6: USERS Analytics */}
           <Tab label="👥 Users">
-            <div className="space-y-6">
-              <div className="text-center py-16">
-                <Users className="w-20 h-20 mx-auto mb-6 text-blue-400 opacity-50" />
-                <h2 className="text-3xl font-bold text-white mb-4">User Analytics</h2>
-                <p className="text-gray-400 text-lg mb-8">Comprehensive user insights coming soon</p>
-                <div className="max-w-3xl mx-auto text-left bg-gray-800/50 border border-gray-700 rounded-xl p-8">
-                  <h3 className="text-xl font-semibold text-white mb-4">What's Coming:</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-gray-300">
-                    <div className="flex items-start gap-3">
-                      <DollarSign className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <div className="font-medium text-white">Daily ARPU</div>
-                        <div className="text-sm text-gray-400">30-day trend chart</div>
+            {rawData && data && (
+              <div className="space-y-6">
+                
+                {(() => {
+                  // Calculate comprehensive user metrics
+                  const dateCol = 'Created date (UTC)' in rawData[0] ? 'Created date (UTC)' : 'Date' in rawData[0] ? 'Date' : 'Transaction Date' in rawData[0] ? 'Transaction Date' : null;
+                  const customerCol = 'Customer ID' in rawData[0] ? 'Customer ID' : 'Customer' in rawData[0] ? 'Customer' : null;
+                  const amountCol = 'Amount' in rawData[0] ? 'Amount' : 'Transaction Amount' in rawData[0] ? 'Transaction Amount' : null;
+                  const statusCol = 'Status' in rawData[0] ? 'Status' : 'Payment Status' in rawData[0] ? 'Payment Status' : null;
+                  const currencyCol = 'Currency' in rawData[0] ? 'Currency' : null;
+                  const productCol = 'Product' in rawData[0] ? 'Product' : 'Product Name' in rawData[0] ? 'Product Name' : 'Plan' in rawData[0] ? 'Plan' : null;
+                  
+                  if (!dateCol || !customerCol || !amountCol) {
+                    return (
+                      <div className="text-center py-12 text-gray-400">
+                        <AlertCircle className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                        <p className="text-lg font-semibold mb-2">Missing Required Data</p>
+                        <p>USERS tab requires: Date, Customer ID, and Amount columns</p>
                       </div>
-                    </div>
-                    <div className="flex items-start gap-3">
-                      <CreditCard className="w-5 h-5 text-purple-400 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <div className="font-medium text-white">Subscription Breakdown</div>
-                        <div className="text-sm text-gray-400">By type and product</div>
+                    );
+                  }
+
+                  const today = new Date();
+                  const thirtyDaysAgo = new Date(today);
+                  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+                  // Data structures
+                  const dailyARPU = [];
+                  const dailyRevenue = new Map();
+                  const dailyUsers = new Map();
+                  const subscriptionTypes = new Map();
+                  const productBreakdown = new Map();
+                  const customerTransactionHistory = new Map();
+                  const dailyUpsells = new Map();
+                  const dailyCancellations = new Map();
+                  const dailyNewSubscribers = new Map();
+                  const customerLifetimeValue = new Map();
+                  const customerPaymentCount = new Map();
+                  const customerFirstPayment = new Map();
+                  const customerLastPayment = new Map();
+                  
+                  // Process all transactions
+                  rawData.forEach(row => {
+                    const date = new Date(row[dateCol]);
+                    const customerId = row[customerCol];
+                    const amount = parseFloat(row[amountCol] || 0);
+                    const status = statusCol ? (row[statusCol] || '') : 'Paid';
+                    const currency = currencyCol ? (row[currencyCol] || 'usd') : 'usd';
+                    const product = productCol ? (row[productCol] || 'Standard') : 'Standard';
+                    
+                    if (!customerId || isNaN(date.getTime())) return;
+                    
+                    const dateKey = date.toISOString().split('T')[0];
+                    
+                    // Track all customer transactions
+                    if (!customerTransactionHistory.has(customerId)) {
+                      customerTransactionHistory.set(customerId, []);
+                    }
+                    customerTransactionHistory.get(customerId).push({ date, amount, status, product });
+                    
+                    // Only process successful payments
+                    if ((status.toLowerCase() === 'paid') && (currency.toLowerCase() === 'usd') && amount > 0) {
+                      
+                      // Daily ARPU calculation (last 30 days)
+                      if (date >= thirtyDaysAgo) {
+                        dailyRevenue.set(dateKey, (dailyRevenue.get(dateKey) || 0) + amount);
+                        if (!dailyUsers.has(dateKey)) dailyUsers.set(dateKey, new Set());
+                        dailyUsers.get(dateKey).add(customerId);
+                      }
+                      
+                      // Subscription breakdown (payments > $2)
+                      if (amount > 2.00) {
+                        const subType = amount >= 0.90 && amount <= 1.10 ? 'Trial ($0.99)' : 
+                                       amount >= 40 && amount <= 60 ? 'Monthly ($49.99)' :
+                                       amount >= 280 && amount <= 320 ? 'Annual ($299.99)' :
+                                       amount >= 140 && amount <= 160 ? 'Quarterly ($149.99)' :
+                                       `Other ($${amount.toFixed(0)})`;
+                        subscriptionTypes.set(subType, (subscriptionTypes.get(subType) || 0) + 1);
+                        
+                        if (product) {
+                          productBreakdown.set(product, (productBreakdown.get(product) || 0) + 1);
+                        }
+                      }
+                      
+                      // Customer lifetime tracking
+                      customerLifetimeValue.set(customerId, (customerLifetimeValue.get(customerId) || 0) + amount);
+                      customerPaymentCount.set(customerId, (customerPaymentCount.get(customerId) || 0) + 1);
+                      
+                      if (!customerFirstPayment.has(customerId)) {
+                        customerFirstPayment.set(customerId, date);
+                        if (date >= thirtyDaysAgo && amount > 2.00) {
+                          dailyNewSubscribers.set(dateKey, (dailyNewSubscribers.get(dateKey) || 0) + 1);
+                        }
+                      }
+                      customerLastPayment.set(customerId, date);
+                    }
+                  });
+
+                  // Detect upsells (payment amount increases)
+                  customerTransactionHistory.forEach((txs, customerId) => {
+                    const paidTxs = txs.filter(tx => tx.status.toLowerCase() === 'paid' && tx.amount > 0);
+                    paidTxs.sort((a, b) => a.date - b.date);
+                    
+                    for (let i = 1; i < paidTxs.length; i++) {
+                      if (paidTxs[i].amount > paidTxs[i - 1].amount + 5 && paidTxs[i].amount > 10) {
+                        const dateKey = paidTxs[i].date.toISOString().split('T')[0];
+                        if (paidTxs[i].date >= thirtyDaysAgo) {
+                          dailyUpsells.set(dateKey, (dailyUpsells.get(dateKey) || 0) + 1);
+                        }
+                      }
+                    }
+                  });
+
+                  // Detect cancellations (no payment for 35+ days)
+                  const cancellationThreshold = new Date(today);
+                  cancellationThreshold.setDate(cancellationThreshold.getDate() - 35);
+                  
+                  customerLastPayment.forEach((lastDate, customerId) => {
+                    if (lastDate < cancellationThreshold) {
+                      const daysSince = Math.floor((today - lastDate) / (1000 * 60 * 60 * 24));
+                      if (daysSince >= 35 && daysSince <= 65 && lastDate >= thirtyDaysAgo) {
+                        const dateKey = lastDate.toISOString().split('T')[0];
+                        dailyCancellations.set(dateKey, (dailyCancellations.get(dateKey) || 0) + 1);
+                      }
+                    }
+                  });
+
+                  // Calculate daily ARPU for last 30 days
+                  for (let i = 0; i < 30; i++) {
+                    const d = new Date(today);
+                    d.setDate(d.getDate() - (29 - i));
+                    const dateKey = d.toISOString().split('T')[0];
+                    const revenue = dailyRevenue.get(dateKey) || 0;
+                    const users = dailyUsers.get(dateKey)?.size || 0;
+                    const arpu = users > 0 ? revenue / users : 0;
+                    
+                    dailyARPU.push({
+                      date: dateKey,
+                      arpu: parseFloat(arpu.toFixed(2)),
+                      revenue: parseFloat(revenue.toFixed(2)),
+                      users: users,
+                      upsells: dailyUpsells.get(dateKey) || 0,
+                      cancellations: dailyCancellations.get(dateKey) || 0,
+                      newSubs: dailyNewSubscribers.get(dateKey) || 0
+                    });
+                  }
+
+                  // Aggregate metrics
+                  const totalRevenue = Array.from(dailyRevenue.values()).reduce((sum, val) => sum + val, 0);
+                  const totalUsers = new Set();
+                  dailyUsers.forEach(userSet => userSet.forEach(u => totalUsers.add(u)));
+                  const avgARPU = totalUsers.size > 0 ? totalRevenue / totalUsers.size : 0;
+                  
+                  const totalUpsells = Array.from(dailyUpsells.values()).reduce((sum, val) => sum + val, 0);
+                  const totalCancellations = Array.from(dailyCancellations.values()).reduce((sum, val) => sum + val, 0);
+                  const totalNewSubs = Array.from(dailyNewSubscribers.values()).reduce((sum, val) => sum + val, 0);
+                  
+                  const upsellRate = totalUsers.size > 0 ? (totalUpsells / totalUsers.size * 100).toFixed(1) : '0.0';
+                  const churnRate = totalUsers.size > 0 ? (totalCancellations / totalUsers.size * 100).toFixed(1) : '0.0';
+                  
+                  // Customer value segments
+                  const whales = Array.from(customerLifetimeValue.entries()).filter(([_, ltv]) => ltv >= 500).length;
+                  const highValue = Array.from(customerLifetimeValue.entries()).filter(([_, ltv]) => ltv >= 200 && ltv < 500).length;
+                  const mediumValue = Array.from(customerLifetimeValue.entries()).filter(([_, ltv]) => ltv >= 100 && ltv < 200).length;
+                  const lowValue = Array.from(customerLifetimeValue.entries()).filter(([_, ltv]) => ltv < 100).length;
+                  
+                  // Payment frequency segments
+                  const oneTimers = Array.from(customerPaymentCount.entries()).filter(([_, count]) => count === 1).length;
+                  const occasional = Array.from(customerPaymentCount.entries()).filter(([_, count]) => count >= 2 && count <= 5).length;
+                  const regular = Array.from(customerPaymentCount.entries()).filter(([_, count]) => count >= 6 && count <= 12).length;
+                  const loyalists = Array.from(customerPaymentCount.entries()).filter(([_, count]) => count > 12).length;
+
+                  const peakARPU = Math.max(...dailyARPU.map(d => d.arpu));
+                  const lowARPU = Math.min(...dailyARPU.filter(d => d.arpu > 0).map(d => d.arpu));
+
+                  return (
+                    <>
+                      {/* Top KPIs */}
+                      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                        <MetricCard 
+                          label="Avg ARPU (30d)"
+                          value={`$${avgARPU.toFixed(2)}`}
+                          subtext="Revenue per user"
+                          icon={<DollarSign className="w-5 h-5" />}
+                          color="text-emerald-400"
+                        />
+                        <MetricCard 
+                          label="Active Users (30d)"
+                          value={totalUsers.size.toLocaleString()}
+                          subtext="Paid last 30 days"
+                          icon={<Users className="w-5 h-5" />}
+                          color="text-blue-400"
+                        />
+                        <MetricCard 
+                          label="Upsells (30d)"
+                          value={totalUpsells.toLocaleString()}
+                          subtext={`${upsellRate}% upsell rate`}
+                          icon={<TrendingUp className="w-5 h-5" />}
+                          color="text-green-400"
+                        />
+                        <MetricCard 
+                          label="Cancellations (30d)"
+                          value={totalCancellations.toLocaleString()}
+                          subtext={`${churnRate}% churn rate`}
+                          icon={<TrendingDown className="w-5 h-5" />}
+                          color="text-red-400"
+                        />
+                        <MetricCard 
+                          label="New Subscribers"
+                          value={totalNewSubs.toLocaleString()}
+                          subtext="Last 30 days"
+                          icon={<Users className="w-5 h-5" />}
+                          color="text-cyan-400"
+                        />
                       </div>
-                    </div>
-                    <div className="flex items-start gap-3">
-                      <TrendingUp className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <div className="font-medium text-white">Upsell Tracking</div>
-                        <div className="text-sm text-gray-400">Daily upsell chart & rate</div>
+
+                      {/* ARPU Chart */}
+                      <Section title="Daily ARPU (Last 30 Days)" icon={<DollarSign className="text-emerald-400" />}>
+                        <div className="p-6">
+                          <div className="h-80">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <LineChart data={dailyARPU}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                                <XAxis 
+                                  dataKey="date" 
+                                  stroke="#666"
+                                  tick={{ fill: '#999', fontSize: 10 }}
+                                  angle={-45}
+                                  textAnchor="end"
+                                  height={80}
+                                />
+                                <YAxis 
+                                  stroke="#666" 
+                                  tick={{ fill: '#999' }}
+                                  label={{ value: 'ARPU ($)', angle: -90, position: 'insideLeft', fill: '#999' }}
+                                  domain={[0, 'auto']}
+                                />
+                                <Tooltip 
+                                  contentStyle={{ 
+                                    backgroundColor: '#0f172a', 
+                                    borderColor: '#333',
+                                    borderRadius: '8px'
+                                  }}
+                                  formatter={(value, name) => {
+                                    if (name === 'arpu') return [`$${parseFloat(value).toFixed(2)}`, 'ARPU'];
+                                    if (name === 'revenue') return [`$${parseFloat(value).toFixed(2)}`, 'Revenue'];
+                                    return [value, name];
+                                  }}
+                                />
+                                <Legend />
+                                <Line 
+                                  type="monotone" 
+                                  dataKey="arpu" 
+                                  stroke="#10b981" 
+                                  strokeWidth={3}
+                                  dot={{ fill: '#10b981', r: 3 }}
+                                  name="ARPU"
+                                />
+                              </LineChart>
+                            </ResponsiveContainer>
+                          </div>
+                          
+                          <div className="mt-4 p-4 bg-blue-900/20 border border-blue-800 rounded-lg">
+                            <div className="flex items-start gap-3">
+                              <Info className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
+                              <div>
+                                <h4 className="font-semibold text-blue-300 mb-1">ARPU Analysis</h4>
+                                <div className="text-sm text-blue-200">
+                                  Average: <strong>${avgARPU.toFixed(2)}</strong> | 
+                                  Peak: <strong>${peakARPU.toFixed(2)}</strong> | 
+                                  Low: <strong>${lowARPU.toFixed(2)}</strong>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </Section>
+
+                      {/* Subscription & Product Breakdown */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <Section title="Subscription Type Breakdown" icon={<CreditCard className="text-purple-400" />}>
+                          <div className="p-6 space-y-3">
+                            {subscriptionTypes.size > 0 ? (
+                              Array.from(subscriptionTypes.entries())
+                                .sort((a, b) => b[1] - a[1])
+                                .slice(0, 6)
+                                .map(([type, count], idx) => {
+                                  const total = Array.from(subscriptionTypes.values()).reduce((sum, val) => sum + val, 0);
+                                  const percentage = ((count / total) * 100).toFixed(1);
+                                  return (
+                                    <div key={idx} className="flex items-center justify-between p-3 bg-gray-800/50 border border-gray-700 rounded-lg hover:border-purple-500/50 transition-colors">
+                                      <div>
+                                        <div className="font-medium text-white">{type}</div>
+                                        <div className="text-sm text-gray-400">{count.toLocaleString()} subscriptions</div>
+                                      </div>
+                                      <div className="text-right">
+                                        <div className="text-2xl font-bold text-purple-400">{percentage}%</div>
+                                        <div className="w-24 h-2 bg-gray-700 rounded-full overflow-hidden mt-1">
+                                          <div 
+                                            className="h-full bg-purple-500"
+                                            style={{ width: `${percentage}%` }}
+                                          />
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })
+                            ) : (
+                              <div className="text-center py-8 text-gray-400">
+                                <CreditCard className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                                <p>No subscription data found</p>
+                              </div>
+                            )}
+                          </div>
+                        </Section>
+
+                        <Section title="Product Breakdown" icon={<FileText className="text-cyan-400" />}>
+                          <div className="p-6">
+                            {productBreakdown.size > 0 ? (
+                              <div className="space-y-3">
+                                {Array.from(productBreakdown.entries())
+                                  .sort((a, b) => b[1] - a[1])
+                                  .slice(0, 6)
+                                  .map(([product, count], idx) => {
+                                    const total = Array.from(productBreakdown.values()).reduce((sum, val) => sum + val, 0);
+                                    const percentage = ((count / total) * 100).toFixed(1);
+                                    return (
+                                      <div key={idx} className="flex items-center justify-between p-3 bg-gray-800/50 border border-gray-700 rounded-lg hover:border-cyan-500/50 transition-colors">
+                                        <div>
+                                          <div className="font-medium text-white">{product}</div>
+                                          <div className="text-sm text-gray-400">{count.toLocaleString()} users</div>
+                                        </div>
+                                        <div className="text-right">
+                                          <div className="text-2xl font-bold text-cyan-400">{percentage}%</div>
+                                          <div className="w-24 h-2 bg-gray-700 rounded-full overflow-hidden mt-1">
+                                            <div 
+                                              className="h-full bg-cyan-500"
+                                              style={{ width: `${percentage}%` }}
+                                            />
+                                          </div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                              </div>
+                            ) : (
+                              <div className="text-center py-8 text-gray-400">
+                                <FileText className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                                <p>No product data in CSV</p>
+                                <p className="text-sm mt-1">Add "Product" column to see breakdown</p>
+                              </div>
+                            )}
+                          </div>
+                        </Section>
                       </div>
-                    </div>
-                    <div className="flex items-start gap-3">
-                      <TrendingDown className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <div className="font-medium text-white">Churn Analysis</div>
-                        <div className="text-sm text-gray-400">Cancellation tracking</div>
+
+                      {/* Upsells & Cancellations Charts */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <Section title="Upsells (Last 30 Days)" icon={<TrendingUp className="text-green-400" />}>
+                          <div className="p-6">
+                            <div className="h-64">
+                              <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={dailyARPU}>
+                                  <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                                  <XAxis 
+                                    dataKey="date" 
+                                    stroke="#666"
+                                    tick={{ fill: '#999', fontSize: 9 }}
+                                    angle={-45}
+                                    textAnchor="end"
+                                    height={60}
+                                  />
+                                  <YAxis stroke="#666" tick={{ fill: '#999' }} />
+                                  <Tooltip 
+                                    contentStyle={{ 
+                                      backgroundColor: '#0f172a', 
+                                      borderColor: '#333'
+                                    }}
+                                  />
+                                  <Bar dataKey="upsells" fill="#10b981" name="Upsells" />
+                                </BarChart>
+                              </ResponsiveContainer>
+                            </div>
+                            <div className="mt-4 text-center">
+                              <div className="text-3xl font-bold text-green-400">{totalUpsells}</div>
+                              <div className="text-sm text-gray-400">Total upsells | {upsellRate}% of users</div>
+                            </div>
+                          </div>
+                        </Section>
+
+                        <Section title="Cancellations (Last 30 Days)" icon={<TrendingDown className="text-red-400" />}>
+                          <div className="p-6">
+                            <div className="h-64">
+                              <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={dailyARPU}>
+                                  <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                                  <XAxis 
+                                    dataKey="date" 
+                                    stroke="#666"
+                                    tick={{ fill: '#999', fontSize: 9 }}
+                                    angle={-45}
+                                    textAnchor="end"
+                                    height={60}
+                                  />
+                                  <YAxis stroke="#666" tick={{ fill: '#999' }} />
+                                  <Tooltip 
+                                    contentStyle={{ 
+                                      backgroundColor: '#0f172a', 
+                                      borderColor: '#333'
+                                    }}
+                                  />
+                                  <Bar dataKey="cancellations" fill="#ef4444" name="Cancellations" />
+                                </BarChart>
+                              </ResponsiveContainer>
+                            </div>
+                            <div className="mt-4 text-center">
+                              <div className="text-3xl font-bold text-red-400">{totalCancellations}</div>
+                              <div className="text-sm text-gray-400">Total cancellations | {churnRate}% churn</div>
+                            </div>
+                          </div>
+                        </Section>
                       </div>
-                    </div>
-                    <div className="flex items-start gap-3">
-                      <Users className="w-5 h-5 text-yellow-400 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <div className="font-medium text-white">Value Segments</div>
-                        <div className="text-sm text-gray-400">Whales, High, Medium, Low</div>
-                      </div>
-                    </div>
-                    <div className="flex items-start gap-3">
-                      <Activity className="w-5 h-5 text-cyan-400 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <div className="font-medium text-white">Loyalty Tracking</div>
-                        <div className="text-sm text-gray-400">Engagement patterns</div>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mt-6 pt-6 border-t border-gray-700">
-                    <p className="text-sm text-blue-300">
-                      📋 <strong>Full specification available</strong> in USERS-TAB-SPEC.md
-                    </p>
-                  </div>
-                </div>
+
+                      {/* Customer Value Segments */}
+                      <Section title="Customer Value Segments" icon={<Users className="text-yellow-400" />}>
+                        <div className="p-6">
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <div className="p-5 bg-gradient-to-br from-yellow-900/30 to-yellow-800/20 border border-yellow-700 rounded-lg hover:border-yellow-500 transition-all">
+                              <div className="text-yellow-400 text-sm font-medium mb-2">🐋 Whales</div>
+                              <div className="text-3xl font-bold text-white mb-1">{whales}</div>
+                              <div className="text-xs text-gray-400">LTV ≥ $500</div>
+                              <div className="text-xs text-yellow-300 mt-2">
+                                {customerLifetimeValue.size > 0 ? `${((whales / customerLifetimeValue.size) * 100).toFixed(1)}% of users` : '0%'}
+                              </div>
+                            </div>
+                            
+                            <div className="p-5 bg-gradient-to-br from-green-900/30 to-green-800/20 border border-green-700 rounded-lg hover:border-green-500 transition-all">
+                              <div className="text-green-400 text-sm font-medium mb-2">💎 High Value</div>
+                              <div className="text-3xl font-bold text-white mb-1">{highValue}</div>
+                              <div className="text-xs text-gray-400">LTV $200-$500</div>
+                              <div className="text-xs text-green-300 mt-2">
+                                {customerLifetimeValue.size > 0 ? `${((highValue / customerLifetimeValue.size) * 100).toFixed(1)}% of users` : '0%'}
+                              </div>
+                            </div>
+                            
+                            <div className="p-5 bg-gradient-to-br from-blue-900/30 to-blue-800/20 border border-blue-700 rounded-lg hover:border-blue-500 transition-all">
+                              <div className="text-blue-400 text-sm font-medium mb-2">💰 Medium Value</div>
+                              <div className="text-3xl font-bold text-white mb-1">{mediumValue}</div>
+                              <div className="text-xs text-gray-400">LTV $100-$200</div>
+                              <div className="text-xs text-blue-300 mt-2">
+                                {customerLifetimeValue.size > 0 ? `${((mediumValue / customerLifetimeValue.size) * 100).toFixed(1)}% of users` : '0%'}
+                              </div>
+                            </div>
+                            
+                            <div className="p-5 bg-gradient-to-br from-gray-900/30 to-gray-800/20 border border-gray-700 rounded-lg hover:border-gray-500 transition-all">
+                              <div className="text-gray-400 text-sm font-medium mb-2">🔰 Low Value</div>
+                              <div className="text-3xl font-bold text-white mb-1">{lowValue}</div>
+                              <div className="text-xs text-gray-400">LTV &lt; $100</div>
+                              <div className="text-xs text-gray-300 mt-2">
+                                {customerLifetimeValue.size > 0 ? `${((lowValue / customerLifetimeValue.size) * 100).toFixed(1)}% of users` : '0%'}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </Section>
+
+                      {/* Payment Frequency Segments */}
+                      <Section title="Customer Loyalty & Engagement" icon={<Activity className="text-purple-400" />}>
+                        <div className="p-6">
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <div className="p-5 bg-gray-800/50 border border-gray-700 rounded-lg hover:border-gray-500 transition-all">
+                              <div className="text-gray-400 text-sm font-medium mb-2">One-Time</div>
+                              <div className="text-3xl font-bold text-white mb-1">{oneTimers}</div>
+                              <div className="text-xs text-gray-400">1 payment</div>
+                              <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden mt-3">
+                                <div 
+                                  className="h-full bg-gray-500"
+                                  style={{ width: `${customerPaymentCount.size > 0 ? (oneTimers / customerPaymentCount.size * 100).toFixed(0) : 0}%` }}
+                                />
+                              </div>
+                              <div className="text-xs text-gray-400 mt-1">
+                                {customerPaymentCount.size > 0 ? `${(oneTimers / customerPaymentCount.size * 100).toFixed(1)}%` : '0%'}
+                              </div>
+                            </div>
+                            
+                            <div className="p-5 bg-gray-800/50 border border-blue-700 rounded-lg hover:border-blue-500 transition-all">
+                              <div className="text-blue-400 text-sm font-medium mb-2">Occasional</div>
+                              <div className="text-3xl font-bold text-white mb-1">{occasional}</div>
+                              <div className="text-xs text-gray-400">2-5 payments</div>
+                              <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden mt-3">
+                                <div 
+                                  className="h-full bg-blue-500"
+                                  style={{ width: `${customerPaymentCount.size > 0 ? (occasional / customerPaymentCount.size * 100).toFixed(0) : 0}%` }}
+                                />
+                              </div>
+                              <div className="text-xs text-blue-400 mt-1">
+                                {customerPaymentCount.size > 0 ? `${(occasional / customerPaymentCount.size * 100).toFixed(1)}%` : '0%'}
+                              </div>
+                            </div>
+                            
+                            <div className="p-5 bg-gray-800/50 border border-green-700 rounded-lg hover:border-green-500 transition-all">
+                              <div className="text-green-400 text-sm font-medium mb-2">Regular</div>
+                              <div className="text-3xl font-bold text-white mb-1">{regular}</div>
+                              <div className="text-xs text-gray-400">6-12 payments</div>
+                              <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden mt-3">
+                                <div 
+                                  className="h-full bg-green-500"
+                                  style={{ width: `${customerPaymentCount.size > 0 ? (regular / customerPaymentCount.size * 100).toFixed(0) : 0}%` }}
+                                />
+                              </div>
+                              <div className="text-xs text-green-400 mt-1">
+                                {customerPaymentCount.size > 0 ? `${(regular / customerPaymentCount.size * 100).toFixed(1)}%` : '0%'}
+                              </div>
+                            </div>
+                            
+                            <div className="p-5 bg-gradient-to-br from-purple-900/30 to-purple-800/20 border border-purple-600 rounded-lg hover:border-purple-500 transition-all">
+                              <div className="text-purple-400 text-sm font-medium mb-2">👑 Loyalists</div>
+                              <div className="text-3xl font-bold text-white mb-1">{loyalists}</div>
+                              <div className="text-xs text-gray-400">12+ payments</div>
+                              <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden mt-3">
+                                <div 
+                                  className="h-full bg-purple-500"
+                                  style={{ width: `${customerPaymentCount.size > 0 ? (loyalists / customerPaymentCount.size * 100).toFixed(0) : 0}%` }}
+                                />
+                              </div>
+                              <div className="text-xs text-purple-400 mt-1">
+                                {customerPaymentCount.size > 0 ? `${(loyalists / customerPaymentCount.size * 100).toFixed(1)}%` : '0%'}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="mt-6 p-4 bg-purple-900/20 border border-purple-800 rounded-lg">
+                            <div className="flex items-start gap-3">
+                              <Info className="w-5 h-5 text-purple-400 flex-shrink-0 mt-0.5" />
+                              <div>
+                                <h4 className="font-semibold text-purple-300 mb-2">Engagement Insights</h4>
+                                <div className="text-sm text-purple-200 space-y-1">
+                                  <p>• <strong>Retention opportunity:</strong> {oneTimers} one-time customers could be re-engaged</p>
+                                  <p>• <strong>Core base:</strong> {regular + loyalists} customers ({customerPaymentCount.size > 0 ? (((regular + loyalists) / customerPaymentCount.size) * 100).toFixed(1) : '0'}%) are regular+ users</p>
+                                  <p>• <strong>VIP segment:</strong> {loyalists} loyalists ({customerPaymentCount.size > 0 ? ((loyalists / customerPaymentCount.size * 100).toFixed(1)) : '0'}%) drive recurring revenue</p>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </Section>
+
+                      {/* New Subscribers Trend */}
+                      <Section title="New Subscriber Acquisition (30 Days)" icon={<Users className="text-cyan-400" />}>
+                        <div className="p-6">
+                          <div className="h-64">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <BarChart data={dailyARPU}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                                <XAxis 
+                                  dataKey="date" 
+                                  stroke="#666"
+                                  tick={{ fill: '#999', fontSize: 9 }}
+                                  angle={-45}
+                                  textAnchor="end"
+                                  height={60}
+                                />
+                                <YAxis stroke="#666" tick={{ fill: '#999' }} />
+                                <Tooltip 
+                                  contentStyle={{ 
+                                    backgroundColor: '#0f172a', 
+                                    borderColor: '#333'
+                                  }}
+                                />
+                                <Bar dataKey="newSubs" fill="#06b6d4" name="New Subscribers" />
+                              </BarChart>
+                            </ResponsiveContainer>
+                          </div>
+                          <div className="mt-4 grid grid-cols-3 gap-4 text-center">
+                            <div>
+                              <div className="text-2xl font-bold text-cyan-400">{totalNewSubs}</div>
+                              <div className="text-xs text-gray-400">New subscribers</div>
+                            </div>
+                            <div>
+                              <div className="text-2xl font-bold text-cyan-400">
+                                {(totalNewSubs / 30).toFixed(1)}
+                              </div>
+                              <div className="text-xs text-gray-400">Avg per day</div>
+                            </div>
+                            <div>
+                              <div className="text-2xl font-bold text-cyan-400">
+                                {totalNewSubs > 0 ? ((totalNewSubs - totalCancellations) / totalNewSubs * 100).toFixed(1) : '0.0'}%
+                              </div>
+                              <div className="text-xs text-gray-400">Net growth rate</div>
+                            </div>
+                          </div>
+                        </div>
+                      </Section>
+
+                    </>
+                  );
+                })()}
+
               </div>
-            </div>
+            )}
           </Tab>
 
           {/* Tab 7: Avatar Analysis */}
