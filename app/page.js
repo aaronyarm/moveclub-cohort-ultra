@@ -2106,123 +2106,148 @@ export default function WellnessDashboard() {
             )}
           </Tab>
 
-          {/* Tab 6: Classic Cohort View */}
+              {/* Tab 6: Classic Cohort View */}
           <Tab label="📈 Classic Cohorts">
             <div className="space-y-6">
 
-        {/* Summary Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
-          <MetricCard label="Total Trials" value={data.summary.totalTrials.toLocaleString()} subtext="All time" color="text-blue-400" />
-          <MetricCard label="Active Trials" value={data.summary.activeTrials.toLocaleString()} subtext="Last 7 days" color="text-cyan-400" />
-          <MetricCard label="Paid Customers" value={data.summary.totalPaid.toLocaleString()} subtext="Converted" color="text-green-400" />
-          <MetricCard label="Net Revenue" value={`$${parseFloat(data.summary.totalNetRevenue).toLocaleString()}`} subtext="After fees & refunds" color="text-emerald-400" />
-          <MetricCard label="Win-Back Rate" value={data.summary.recoveryRate} subtext="Failed → Paid" color="text-purple-400" />
-        </div>
+              {/* Summary Cards */}
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                <MetricCard 
+                  label="Total Trials" 
+                  value={data.summary.totalTrials.toLocaleString()} 
+                  subtext="All time" 
+                  color="text-blue-400" 
+                />
+                <MetricCard 
+                  label="Active Trials" 
+                  value={data.summary.activeTrials.toLocaleString()} 
+                  subtext="Last 7 days" 
+                  color="text-cyan-400" 
+                />
+                <MetricCard 
+                  label="Paid Customers" 
+                  value={data.summary.totalPaid.toLocaleString()} 
+                  subtext="Converted" 
+                  color="text-green-400" 
+                />
+                <MetricCard 
+                  label="Net Revenue" 
+                  value={`$${parseFloat(data.summary.totalNetRevenue).toLocaleString()}`} 
+                  subtext="After fees & refunds" 
+                  color="text-emerald-400" 
+                />
+                <MetricCard 
+                  label="Win-Back Rate" 
+                  value={data.summary.recoveryRate} 
+                  subtext="Failed → Paid" 
+                  color="text-purple-400" 
+                />
+              </div>
 
-        {/* Cohort Table */}
-        <Section title="Cohort Performance Table" icon={<FileText className="text-indigo-400" />}>
-          <div className="overflow-x-auto p-2">
-            <table className="w-full text-xs">
+              {/* Cohort Table */}
+              <Section title="Cohort Performance Table" icon={<FileText className="text-indigo-400" />}>
+              <div className="overflow-x-auto p-2">
+              <table className="w-full text-xs">
               <thead>
-                <tr className="text-gray-500 border-b border-gray-800">
-                  {columnOrder.map(key => (
-                    <th key={key} className="p-2 font-medium text-left whitespace-nowrap">
-                      {COLUMN_LABELS[key]}
-                    </th>
-                  ))}
-                </tr>
+              <tr className="text-gray-500 border-b border-gray-800">
+                        {columnOrder.map(key => (
+              <th key={key} className="p-2 font-medium text-left whitespace-nowrap">
+                            {COLUMN_LABELS[key]}
+              </th>
+                        ))}
+              </tr>
               </thead>
               <tbody>
-                {data.cohortTable.map((row, i) => (
-                  <tr key={i} className="border-b border-gray-800 hover:bg-gray-800/30">
-                    {columnOrder.map(key => (
-                      <td key={key} className="p-2 font-mono text-gray-300 whitespace-nowrap">
-                        {row[key]}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
+                      {data.cohortTable.map((row, i) => (
+              <tr key={i} className="border-b border-gray-800 hover:bg-gray-800/30">
+                          {columnOrder.map(key => (
+              <td key={key} className="p-2 font-mono text-gray-300 whitespace-nowrap">
+                              {row[key]}
+              </td>
+                          ))}
+              </tr>
+                      ))}
               </tbody>
-            </table>
-          </div>
-        </Section>
-
-        {/* Additional sections (Refund Breakdown, Trial Velocity, etc.) */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Refund Breakdown */}
-          <Section title="Refund Breakdown" icon={<AlertCircle className="text-red-400" />}>
-            <div className="p-4">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-gray-500 border-b border-gray-800">
-                    <th className="p-2 text-left">Type</th>
-                    <th className="p-2 text-center">Count</th>
-                    <th className="p-2 text-right">Value</th>
-                    <th className="p-2 text-right">%</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.refundBreakdown.map((row, i) => (
-                    <tr key={i} className={`border-b border-gray-800 ${row.type === 'Total' ? 'bg-gray-800/50 font-bold' : ''}`}>
-                      <td className="p-2 text-gray-300">{row.type}</td>
-                      <td className="p-2 text-center text-gray-400">{row.count}</td>
-                      <td className="p-2 text-right text-red-400 font-mono">${row.value}</td>
-                      <td className="p-2 text-right text-gray-500">{row.percent}%</td>
-                    </tr>
-                  ))}
-                </tbody>
               </table>
-            </div>
-          </Section>
+              </div>
+              </Section>
 
-          {/* Trial Velocity */}
-          <Section title="Trial Velocity (Trial → Paid)" icon={<Zap className="text-yellow-400" />}>
-            <div className="p-4">
+              {/* Additional sections (Refund Breakdown, Trial Velocity, etc.) */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Refund Breakdown */}
+              <Section title="Refund Breakdown" icon={<AlertCircle className="text-red-400" />}>
+              <div className="p-4">
               <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-gray-500 border-b border-gray-800">
-                    <th className="p-2 text-left">Timeframe</th>
-                    <th className="p-2 text-center">Count</th>
-                    <th className="p-2 text-right">%</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.trialVelocity.map((row, i) => (
-                    <tr key={i} className="border-b border-gray-800">
-                      <td className="p-2 text-gray-300">{row.label}</td>
-                      <td className="p-2 text-center text-gray-400">{row.count}</td>
-                      <td className="p-2 text-right text-yellow-400 font-mono">{row.percent}%</td>
-                    </tr>
+              <thead>
+              <tr className="text-gray-500 border-b border-gray-800">
+              <th className="p-2 text-left">Type</th>
+              <th className="p-2 text-center">Count</th>
+              <th className="p-2 text-right">Value</th>
+              <th className="p-2 text-right">%</th>
+              </tr>
+              </thead>
+              <tbody>
+                        {data.refundBreakdown.map((row, i) => (
+              <tr key={i} className={`border-b border-gray-800 ${row.type === 'Total' ? 'bg-gray-800/50 font-bold' : ''}`}>
+              <td className="p-2 text-gray-300">{row.type}</td>
+              <td className="p-2 text-center text-gray-400">{row.count}</td>
+              <td className="p-2 text-right text-red-400 font-mono">${row.value}</td>
+              <td className="p-2 text-right text-gray-500">{row.percent}%</td>
+              </tr>
+                        ))}
+              </tbody>
+              </table>
+              </div>
+              </Section>
+
+              {/* Trial Velocity */}
+              <Section title="Trial Velocity (Trial → Paid)" icon={<Zap className="text-yellow-400" />}>
+              <div className="p-4">
+              <table className="w-full text-sm">
+              <thead>
+              <tr className="text-gray-500 border-b border-gray-800">
+              <th className="p-2 text-left">Timeframe</th>
+              <th className="p-2 text-center">Count</th>
+              <th className="p-2 text-right">%</th>
+              </tr>
+              </thead>
+              <tbody>
+                        {data.trialVelocity.map((row, i) => (
+              <tr key={i} className="border-b border-gray-800">
+              <td className="p-2 text-gray-300">{row.label}</td>
+              <td className="p-2 text-center text-gray-400">{row.count}</td>
+              <td className="p-2 text-right text-yellow-400 font-mono">{row.percent}%</td>
+              </tr>
                   ))}
-                </tbody>
+              </tbody>
               </table>
               <div className="mt-4 p-3 bg-gray-800/50 rounded-lg">
-                <p className="text-xs text-gray-400">
-                  <span className="font-semibold text-yellow-400">Zombie Revenue:</span> {data.summary.zombieRevenue} of conversions took 8+ days
-                </p>
+              <p className="text-xs text-gray-400">
+              <span className="font-semibold text-yellow-400">Zombie Revenue:</span> {data.summary.zombieRevenue} of conversions took 8+ days
+              </p>
               </div>
-            </div>
-          </Section>
-        </div>
+              </div>
+              </Section>
+              </div>
 
-        {/* LTV WATERFALL */}
-        <Section title="Net LTV Waterfall ($)" icon={<DollarSign className="text-emerald-400" />}>
-          <div className="overflow-x-auto p-2">
-            <table className="w-full text-xs">
+              {/* LTV WATERFALL */}
+              <Section title="Net LTV Waterfall ($)" icon={<DollarSign className="text-emerald-400" />}>
+              <div className="overflow-x-auto p-2">
+              <table className="w-full text-xs">
               <thead>
-                <tr className="text-gray-500 border-b border-gray-800">
-                  <th className="p-2 font-medium text-left">Cohort</th>
-                  <th className="p-2 font-medium text-left">Paid</th>
+              <tr className="text-gray-500 border-b border-gray-800">
+              <th className="p-2 font-medium text-left">Cohort</th>
+              <th className="p-2 font-medium text-left">Paid</th>
                   {[0,1,2,3,4,5,6].map(m => (
-                    <th key={m} className="p-2 font-medium text-center">M{m}</th>
+              <th key={m} className="p-2 font-medium text-center">M{m}</th>
                   ))}
-                </tr>
+              </tr>
               </thead>
               <tbody>
                 {data.ltvWaterfall.map((row, i) => (
-                  <tr key={i} className="border-b border-gray-800">
-                    <td className="p-2 font-mono text-emerald-300/80">{row.cohort}</td>
-                    <td className="p-2 text-gray-400">{row.size}</td>
+              <tr key={i} className="border-b border-gray-800">
+              <td className="p-2 font-mono text-emerald-300/80">{row.cohort}</td>
+              <td className="p-2 text-gray-400">{row.size}</td>
                     {[0,1,2,3,4,5,6].map(m => {
                       const value = row[`m${m}`];
                       const numValue = parseFloat(value);
@@ -2231,41 +2256,41 @@ export default function WellnessDashboard() {
                         if (numValue >= 100) return 'bg-emerald-500/90';
                         if (numValue >= 50) return 'bg-emerald-500/50';
                         return 'bg-emerald-500/20';
-                      };
+            };
                       
                       return (
-                        <td key={m} className={`p-2 text-center ${getBgColor()}`}>
+              <td key={m} className={`p-2 text-center ${getBgColor()}`}>
                           {value !== null 
                             ? <span className="font-medium text-white">${value}</span> 
                             : <span className="text-gray-600">-</span>}
-                        </td>
+              </td>
                       );
-                    })}
-                  </tr>
+            })}
+              </tr>
                 ))}
               </tbody>
-            </table>
-          </div>
-        </Section>
+              </table>
+              </div>
+              </Section>
 
-        {/* RETENTION WATERFALL */}
-        <Section title="Retention Waterfall (% Active)" icon={<Users className="text-blue-400" />}>
-          <div className="overflow-x-auto p-2">
-            <table className="w-full text-xs">
+              {/* RETENTION WATERFALL */}
+              <Section title="Retention Waterfall (% Active)" icon={<Users className="text-blue-400" />}>
+              <div className="overflow-x-auto p-2">
+              <table className="w-full text-xs">
               <thead>
-                <tr className="text-gray-500 border-b border-gray-800">
-                  <th className="p-2 font-medium text-left">Cohort</th>
-                  <th className="p-2 font-medium text-left">Paid</th>
+              <tr className="text-gray-500 border-b border-gray-800">
+              <th className="p-2 font-medium text-left">Cohort</th>
+              <th className="p-2 font-medium text-left">Paid</th>
                   {[0,1,2,3,4,5,6].map(m => (
-                    <th key={m} className="p-2 font-medium text-center">M{m}</th>
+              <th key={m} className="p-2 font-medium text-center">M{m}</th>
                   ))}
-                </tr>
+              </tr>
               </thead>
               <tbody>
                 {data.retentionWaterfall.map((row, i) => (
-                  <tr key={i} className="border-b border-gray-800">
-                    <td className="p-2 font-mono text-blue-300/80">{row.cohort}</td>
-                    <td className="p-2 text-gray-400">{row.size}</td>
+              <tr key={i} className="border-b border-gray-800">
+              <td className="p-2 font-mono text-blue-300/80">{row.cohort}</td>
+              <td className="p-2 text-gray-400">{row.size}</td>
                     {[0,1,2,3,4,5,6].map(m => {
                       const value = row[`m${m}`];
                       const num = parseFloat(value);
@@ -2274,41 +2299,41 @@ export default function WellnessDashboard() {
                         if (num >= 60) return 'bg-blue-500/70';
                         if (num >= 30) return 'bg-blue-500/40';
                         return 'bg-blue-500/20';
-                      };
+            };
                       
                       return (
-                        <td key={m} className={`p-2 text-center ${getBgColor()}`}>
+              <td key={m} className={`p-2 text-center ${getBgColor()}`}>
                           {value !== null 
                             ? <span className="font-medium text-white">{value}%</span> 
                             : <span className="text-gray-600">-</span>}
-                        </td>
+              </td>
                       );
-                    })}
-                  </tr>
+            })}
+              </tr>
                 ))}
               </tbody>
-            </table>
-          </div>
-        </Section>
+              </table>
+              </div>
+              </Section>
 
-        {/* SPEND VS REVENUE */}
-        <Section title="Spend vs Net Revenue" icon={<TrendingUp className="text-cyan-400" />}>
-          <div className="h-80 p-4">
-            <ResponsiveContainer width="100%" height="100%">
+              {/* SPEND VS REVENUE */}
+              <Section title="Spend vs Net Revenue" icon={<TrendingUp className="text-cyan-400" />}>
+              <div className="h-80 p-4">
+              <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={data.spendVsRevenue}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-                <XAxis dataKey="month" stroke="#666" angle={-45} textAnchor="end" height={80} />
-                <YAxis stroke="#666" />
-                <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#333' }} formatter={(value) => `$${value.toLocaleString()}`} />
-                <Legend />
-                <Bar dataKey="adSpend" fill="#f97316" name="Ad Spend" />
-                <Line type="monotone" dataKey="revenue" stroke="#10b981" strokeWidth={3} name="Net Revenue" />
+              <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+              <XAxis dataKey="month" stroke="#666" angle={-45} textAnchor="end" height={80} />
+              <YAxis stroke="#666" />
+              <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#333' }} formatter={(value) => `$${value.toLocaleString()}`} />
+              <Legend />
+              <Bar dataKey="adSpend" fill="#f97316" name="Ad Spend" />
+              <Line type="monotone" dataKey="revenue" stroke="#10b981" strokeWidth={3} name="Net Revenue" />
               </ComposedChart>
-            </ResponsiveContainer>
-          </div>
-        </Section>
+              </ResponsiveContainer>
+              </div>
+              </Section>
 
-            </div>
+              </div>
           </Tab>
 
         </Tabs>
