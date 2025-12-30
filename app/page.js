@@ -1551,8 +1551,7 @@ export default function WellnessDashboard() {
                           <h4 className="font-semibold text-purple-300 mb-2 text-lg">Recovery Recommendations</h4>
                           <div className="space-y-2 text-sm text-purple-200">
                             {enhancedAnalytics.declineReasons[0] && (
-                              <p>• <strong>Top issue: {enhancedAnalytics.declineReasons[0].reason}</strong> - 
-                                {enhancedAnalytics.declineReasons[0].reason.toLowerCase().includes('insufficient') 
+                              <p>• <strong>Top issue: {enhancedAnalytics.declineReasons[0].reason}</strong> - {enhancedAnalytics.declineReasons[0].reason.toLowerCase().includes('insufficient') 
                                   ? ' Wait 48 hours before retry (45% success rate)'
                                   : enhancedAnalytics.declineReasons[0].reason.toLowerCase().includes('expired')
                                   ? ' Request immediate card update (retry won\'t work)'
@@ -1806,8 +1805,7 @@ export default function WellnessDashboard() {
                                 }% of US transactions</p>
                               )}
                               {enhancedAnalytics.countries.length > 1 && (
-                                <p>• <strong>International:</strong> {enhancedAnalytics.countries.length} countries active - 
-                                  {enhancedAnalytics.countries[0].name} is largest market</p>
+                                <p>• <strong>International:</strong> {enhancedAnalytics.countries.length} countries active - {enhancedAnalytics.countries[0].name} is largest market</p>
                               )}
                               <p>• Consider targeted marketing campaigns in top-performing regions</p>
                             </div>
