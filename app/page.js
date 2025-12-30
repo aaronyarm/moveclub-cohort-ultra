@@ -1557,8 +1557,7 @@ export default function WellnessDashboard() {
                                   ? ' Request immediate card update (retry won\'t work)'
                                   : enhancedAnalytics.declineReasons[0].reason.toLowerCase().includes('do not honor')
                                   ? ' Request card update (only 12% retry success)'
-                                  : ' Review with fraud team or payment processor'
-                                }
+                                  : ' Review with fraud team or payment processor'}
                               </p>
                             )}
                             <p>• Total recoverable revenue: ~${(enhancedAnalytics.declineReasons.reduce((sum, r) => sum + parseFloat(r.lostRevenue), 0) * 0.35).toFixed(0)} (estimated 35% recovery rate)</p>
@@ -1799,10 +1798,7 @@ export default function WellnessDashboard() {
                                 <p>• <strong>Top State:</strong> {enhancedAnalytics.states[0].name} generates ${enhancedAnalytics.states[0].avgTransaction} per transaction (highest)</p>
                               )}
                               {enhancedAnalytics.states.length >= 3 && (
-                                <p>• <strong>Top 3 States:</strong> {enhancedAnalytics.states.slice(0, 3).map(s => s.name).join(', ')} drive {
-                                  ((enhancedAnalytics.states.slice(0, 3).reduce((sum, s) => sum + s.total, 0) / 
-                                    enhancedAnalytics.states.reduce((sum, s) => sum + s.total, 0)) * 100).toFixed(0)
-                                }% of US transactions</p>
+                                <p>• <strong>Top 3 States:</strong> {enhancedAnalytics.states.slice(0, 3).map(s => s.name).join(', ')} drive {((enhancedAnalytics.states.slice(0, 3).reduce((sum, s) => sum + s.total, 0) / enhancedAnalytics.states.reduce((sum, s) => sum + s.total, 0)) * 100).toFixed(0)}% of US transactions</p>
                               )}
                               {enhancedAnalytics.countries.length > 1 && (
                                 <p>• <strong>International:</strong> {enhancedAnalytics.countries.length} countries active - {enhancedAnalytics.countries[0].name} is largest market</p>
@@ -2023,8 +2019,7 @@ export default function WellnessDashboard() {
                                   <p>
                                     • <strong>Expected impact:</strong> Could recover an additional {
                                       Math.round((parseFloat(optimal.successRate) - parseFloat(immediate.successRate)) / 100 * 
-                                      enhancedAnalytics.summary.failedTransactions * 0.5)
-                                    } transactions per period
+                                      enhancedAnalytics.summary.failedTransactions * 0.5)} transactions per period
                                   </p>
                                 </>
                               );
