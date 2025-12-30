@@ -696,6 +696,30 @@ export default function WellnessDashboard() {
   const [activeTab, setActiveTab] = useState(0);
   const [enhancedAnalytics, setEnhancedAnalytics] = useState(null);
 
+  // Color map for Tailwind class safelisting
+  const COLOR_MAP = {
+    emerald: {
+      title: 'text-emerald-400',
+      badge: 'bg-emerald-500/20 text-emerald-400',
+      bg: 'bg-emerald-500'
+    },
+    blue: {
+      title: 'text-blue-400',
+      badge: 'bg-blue-500/20 text-blue-400',
+      bg: 'bg-blue-500'
+    },
+    orange: {
+      title: 'text-orange-400',
+      badge: 'bg-orange-500/20 text-orange-400',
+      bg: 'bg-orange-500'
+    },
+    gray: {
+      title: 'text-gray-400',
+      badge: 'bg-gray-500/20 text-gray-400',
+      bg: 'bg-gray-500'
+    }
+  };
+
   // Initialize session and load data from Supabase
   useEffect(() => {
     const sid = getSessionId();
@@ -1241,16 +1265,18 @@ export default function WellnessDashboard() {
                   <Section title="Customer Segments (Anonymous)" icon={<Users className="text-indigo-400" />}>
                     <div className="p-6">
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                        {enhancedAnalytics.behaviorSegments.map((segment, idx) => (
+                        {enhancedAnalytics?.behaviorSegments?.map((segment, idx) => {
+                          const colors = COLOR_MAP[segment.color] || COLOR_MAP.gray;
+                          return (
                           <div 
                             key={idx}
                             className="bg-gray-800/50 border border-gray-700 rounded-lg p-4 hover:border-gray-600 transition-colors"
                           >
                             <div className="flex items-center justify-between mb-3">
-                              <h3 className={`text-lg font-bold text-${segment.color}-400`}>
+                              <h3 className={`text-lg font-bold ${colors.title}`}>
                                 {segment.name}
                               </h3>
-                              <span className={`text-xs bg-${segment.color}-500/20 text-${segment.color}-400 px-2 py-1 rounded`}>
+                              <span className={`text-xs ${colors.badge} px-2 py-1 rounded`}>
                                 {segment.percentage}%
                               </span>
                             </div>
@@ -1281,7 +1307,8 @@ export default function WellnessDashboard() {
                               </div>
                             </div>
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   </Section>
@@ -2417,20 +2444,3 @@ export default function WellnessDashboard() {
   );
 }
 
-const Section = ({ title, icon, children }) => (
-  <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden shadow-lg">
-    <div className="p-5 border-b border-gray-800 flex items-center bg-gray-800/50">
-      {icon}
-      <h2 className="ml-3 text-lg font-bold text-gray-200">{title}</h2>
-    </div>
-    <div>{children}</div>
-  </div>
-);
-
-const MetricCard = ({ label, value, subtext, color = "text-white" }) => (
-  <div className="bg-gray-800/50 border border-gray-700 p-4 rounded-lg hover:border-gray-600 transition-colors shadow-lg">
-    <div className="text-xs text-gray-400 mb-2 uppercase tracking-wide font-medium">{label}</div>
-    <div className={`text-2xl font-bold mb-1 ${color}`}>{value}</div>
-    <div className="text-xs text-gray-500">{subtext}</div>
-  </div>
-);
