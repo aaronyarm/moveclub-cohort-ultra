@@ -221,16 +221,20 @@ const processData = (data, stripeFeePercent = 7.5, adSpendData = {}, dateRangeDa
 
     for (const tx of txs) {
       if (tx.status === 'Paid' || tx.status === 'paid') {
+        // Track trial payment ($0.99)
         if (tx.amount >= 0.90 && tx.amount <= 1.10 && !firstTrialDate) {
           firstTrialDate = tx.date;
           trialCustomers.set(customerId, tx.date);
         }
 
-        if (tx.amount > 2.00 && !firstPaidDate) {
+        // FIXED: Track first payment of ANY amount (including $0.99 trial)
+        // This ensures trial-only customers are included in LTV calculation
+        if (!firstPaidDate) {
           firstPaidDate = tx.date;
           paidCustomers.set(customerId, tx.date);
         }
 
+        // Count subscription payments ($2+) for payment velocity tracking
         if (tx.amount > 2.00) {
           customerPaymentCount.set(customerId, (customerPaymentCount.get(customerId) || 0) + 1);
         }
@@ -373,16 +377,22 @@ const processData = (data, stripeFeePercent = 7.5, adSpendData = {}, dateRangeDa
     const date = new Date(row[dateCol]);
 
     if ((status === 'Paid' || status === 'paid') && (currency === 'usd' || currency === 'USD') && amount > 0) {
+      // Track trial payments ($0.99)
       if (amount >= 0.90 && amount <= 1.10) {
         if (!allTrialCustomers.has(cid)) {
           allTrialCustomers.set(cid, date);
         }
       }
       
+      // FIXED: Include ALL paying customers (even $0.99 trial-only)
+      // This ensures LTV denominator includes trial-only churners
+      if (!allPaidCustomers.has(cid)) {
+        allPaidCustomers.set(cid, date);
+      }
+      
+      // Track multiple payments (for secondPlusPaid metric)
+      // Only count payments > $2 as "subscription" payments
       if (amount > 2.00) {
-        if (!allPaidCustomers.has(cid)) {
-          allPaidCustomers.set(cid, date);
-        }
         allCustomerPaymentCount.set(cid, (allCustomerPaymentCount.get(cid) || 0) + 1);
       }
     }
