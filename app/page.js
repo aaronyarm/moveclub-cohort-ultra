@@ -2359,7 +2359,7 @@ export default function WellnessDashboard() {
                       </button>
                     </div>
                     <div className="flex-1">
-                      <div className="text-white font-medium">{COLUMN_LABELS[key]}</div>
+                      <div className="text-white font-medium">{COLUMN_LABELS[key] || key}</div>
                     </div>
                   </div>
                 ))}
