@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart } from 'recharts';
-import { Upload, DollarSign, Users, TrendingUp, Target, ArrowUpRight, Calendar, Edit3, X, Settings, ChevronUp, ChevronDown, AlertCircle, Zap, FileText, CheckCircle, Info, Database, Trash2, CreditCard, MapPin, TrendingDown, RefreshCw, Activity } from 'lucide-react';
+import { Upload, DollarSign, Users, TrendingUp, Target, ArrowUpRight, Calendar, Edit3, X, Settings, ChevronUp, ChevronDown, AlertCircle, Zap, FileText, CheckCircle, Info, Database, Trash2, CreditCard, MapPin, TrendingDown, RefreshCw, Activity, Globe } from 'lucide-react';
 import Papa from 'papaparse';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { processEnhancedAnalytics } from '../lib/enhancedAnalytics';
@@ -2900,6 +2900,18 @@ export default function WellnessDashboard() {
                   });
 
                   const totalCustomers = customers.size;
+                  
+                  // Safety check for no customers
+                  if (totalCustomers === 0) {
+                    return (
+                      <div className="text-center py-12 text-gray-400">
+                        <Users className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                        <p>No customer data found for avatar analysis</p>
+                        <p className="text-sm mt-2">Upload CSV with customer names or emails</p>
+                      </div>
+                    );
+                  }
+                  
                   const femaleCount = Array.from(customers.values()).filter(c => c.gender === 'Female').length;
                   const maleCount = totalCustomers - femaleCount;
                   
