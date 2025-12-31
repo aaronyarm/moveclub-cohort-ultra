@@ -2820,51 +2820,406 @@ export default function WellnessDashboard() {
 
           {/* Tab 7: Avatar Analysis */}
           <Tab label="👤 Avatar">
-            <div className="space-y-6">
-              <div className="text-center py-16">
-                <Users className="w-20 h-20 mx-auto mb-6 text-blue-400 opacity-50" />
-                <h2 className="text-3xl font-bold text-white mb-4">Customer Avatar Analysis</h2>
-                <p className="text-gray-400 text-lg mb-8">Demographic insights based on your customer data</p>
-                <div className="max-w-3xl mx-auto text-left bg-gray-800/50 border border-gray-700 rounded-xl p-8">
-                  <h3 className="text-xl font-semibold text-white mb-4">What's Included:</h3>
-                  <div className="space-y-4 text-gray-300">
-                    <div className="flex items-start gap-3">
-                      <Users className="w-5 h-5 text-pink-400 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <div className="font-medium text-white">Gender Analysis (~80% Female)</div>
-                        <div className="text-sm text-gray-400">Based on customer names</div>
+            {rawData && (
+              <div className="space-y-6">
+                
+                {(() => {
+                  // Analyze customer data to create avatars
+                  const nameCol = 'Customer Name' in rawData[0] ? 'Customer Name' : 
+                                 'Name' in rawData[0] ? 'Name' : 
+                                 'Customer' in rawData[0] ? 'Customer' : null;
+                  
+                  const emailCol = 'Customer Email' in rawData[0] ? 'Customer Email' :
+                                  'Email' in rawData[0] ? 'Email' : null;
+                  
+                  if (!nameCol && !emailCol) {
+                    return (
+                      <div className="text-center py-12 text-gray-400">
+                        <Users className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                        <p>Customer name or email data not found in CSV</p>
+                        <p className="text-sm mt-2">Upload data with "Customer Name" or "Customer Email" column</p>
                       </div>
-                    </div>
-                    <div className="flex items-start gap-3">
-                      <Activity className="w-5 h-5 text-purple-400 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <div className="font-medium text-white">Age Breakdown (35-45 core)</div>
-                        <div className="text-sm text-gray-400">Millennials + Gen X focus</div>
+                    );
+                  }
+
+                  // Extract demographics
+                  const customers = new Map();
+                  const femaleNames = ['jennifer', 'amanda', 'ashley', 'sarah', 'melissa', 'stephanie', 'laura', 'jessica', 'emily', 'nicole', 'karen', 'michelle', 'lisa', 'angela', 'kimberly', 'rebecca', 'amy', 'anna', 'christina', 'samantha', 'maria', 'veronica', 'aracely', 'rossy', 'raquel', 'divya', 'priya', 'ranjitha', 'tetiana', 'aleksandra', 'jelena', 'elizabeth', 'mary', 'patricia', 'linda', 'barbara', 'susan', 'nancy', 'donna', 'carol', 'sandra', 'ashley', 'deborah', 'rachel', 'catherine', 'brittany', 'megan', 'nicole', 'heather', 'katherine', 'julie', 'tiffany', 'amber', 'danielle', 'monica'];
+                  const hispanicNames = ['veronica', 'aracely', 'rossy', 'raquel', 'maria', 'garcia', 'rodriguez', 'martinez', 'hernandez', 'lopez', 'gonzalez'];
+                  const southAsianNames = ['divya', 'priya', 'ranjitha', 'kumar', 'sharma'];
+                  const southAsianLastNames = ['patel', 'singh'];
+                  const easternEuropeanNames = ['tetiana', 'aleksandra', 'jelena', 'ivanov', 'petrov', 'sidorov'];
+
+                  rawData.forEach(row => {
+                    const name = nameCol ? row[nameCol] : null;
+                    const email = emailCol ? row[emailCol] : null;
+                    
+                    if (!name && !email) return;
+                    
+                    const customerId = row['Customer ID'] || row['Customer'] || email || name;
+                    if (customers.has(customerId)) return;
+                    
+                    const nameLower = (name || '').toLowerCase();
+                    const emailLower = (email || '').toLowerCase();
+                    
+                    // Gender detection from name
+                    const nameWords = nameLower.split(' ').filter(w => w.length > 2);
+                    const firstName = nameWords[0] || '';
+                    const hasFemaleFirstName = femaleNames.includes(firstName);
+                    const isJustLastName = southAsianLastNames.includes(firstName);
+                    const isFemale = hasFemaleFirstName && !isJustLastName;
+                    
+                    // Ethnicity detection
+                    let ethnicity = 'Anglo/Western European';
+                    if (hispanicNames.some(n => nameLower.includes(n))) {
+                      ethnicity = 'Hispanic/Latina';
+                    } else if (southAsianNames.some(n => nameLower.includes(n)) || southAsianLastNames.some(n => nameLower.includes(n))) {
+                      ethnicity = 'South Asian';
+                    } else if (easternEuropeanNames.some(n => nameLower.includes(n))) {
+                      ethnicity = 'Eastern European';
+                    }
+                    
+                    // Age estimation from email birth year
+                    const yearMatch = emailLower.match(/\d{2}(?=@)/);
+                    let estimatedAge = null;
+                    if (yearMatch) {
+                      const twoDigitYear = parseInt(yearMatch[0]);
+                      const birthYear = twoDigitYear >= 50 ? 1900 + twoDigitYear : 2000 + twoDigitYear;
+                      const currentYear = new Date().getFullYear();
+                      estimatedAge = currentYear - birthYear;
+                      if (estimatedAge < 18 || estimatedAge > 80) estimatedAge = null;
+                    }
+                    
+                    customers.set(customerId, {
+                      name: name || email,
+                      email: email,
+                      gender: isFemale ? 'Female' : 'Male',
+                      ethnicity: ethnicity,
+                      age: estimatedAge
+                    });
+                  });
+
+                  const totalCustomers = customers.size;
+                  const femaleCount = Array.from(customers.values()).filter(c => c.gender === 'Female').length;
+                  const maleCount = totalCustomers - femaleCount;
+                  
+                  // Age statistics
+                  const ages = Array.from(customers.values()).filter(c => c.age).map(c => c.age);
+                  const avgAge = ages.length > 0 ? Math.round(ages.reduce((a, b) => a + b, 0) / ages.length) : null;
+                  const age25_34 = ages.filter(a => a >= 25 && a <= 34).length;
+                  const age35_44 = ages.filter(a => a >= 35 && a <= 44).length;
+                  const age45_54 = ages.filter(a => a >= 45 && a <= 54).length;
+                  
+                  // Ethnicity breakdown
+                  const ethnicities = Array.from(customers.values()).map(c => c.ethnicity);
+                  const angloCount = ethnicities.filter(e => e === 'Anglo/Western European').length;
+                  const hispanicCount = ethnicities.filter(e => e === 'Hispanic/Latina').length;
+                  const southAsianCount = ethnicities.filter(e => e === 'South Asian').length;
+                  const easternEuropeanCount = ethnicities.filter(e => e === 'Eastern European').length;
+
+                  // Create 4 detailed avatars
+                  const avatars = [
+                    {
+                      name: 'Sarah',
+                      fullTitle: 'Core Millennial Woman',
+                      emoji: '👩‍💼',
+                      age: '35-45',
+                      gender: 'Female',
+                      ethnicity: 'Anglo/Western European',
+                      percentage: ((angloCount / totalCustomers) * (femaleCount / totalCustomers) * 100).toFixed(1),
+                      count: Math.round(angloCount * (femaleCount / totalCustomers)),
+                      description: 'Working professional, health-conscious, values wellness and self-care',
+                      interests: ['Fitness', 'Nutrition', 'Work-life balance', 'Mental health'],
+                      painPoints: ['Time constraints', 'Stress management', 'Maintaining healthy habits'],
+                      preferredContent: ['Wellness tips', 'Quick workouts', 'Meal planning', 'Mindfulness'],
+                      color: 'blue'
+                    },
+                    {
+                      name: 'Maria',
+                      fullTitle: 'Hispanic/Latina Wellness Seeker',
+                      emoji: '💃',
+                      age: '30-45',
+                      gender: 'Female',
+                      ethnicity: 'Hispanic/Latina',
+                      percentage: ((hispanicCount / totalCustomers) * 100).toFixed(1),
+                      count: hispanicCount,
+                      description: 'Family-oriented, community-focused, embracing traditional and modern wellness',
+                      interests: ['Family health', 'Cultural wellness', 'Community', 'Holistic approach'],
+                      painPoints: ['Balancing family needs', 'Cultural health traditions', 'Access to resources'],
+                      preferredContent: ['Family wellness', 'Cultural recipes', 'Community support', 'Spanish content'],
+                      color: 'pink'
+                    },
+                    {
+                      name: 'Priya',
+                      fullTitle: 'South Asian Health Enthusiast',
+                      emoji: '🧘‍♀️',
+                      age: '28-40',
+                      gender: 'Female',
+                      ethnicity: 'South Asian',
+                      percentage: ((southAsianCount / totalCustomers) * 100).toFixed(1),
+                      count: southAsianCount,
+                      description: 'Tech-savvy, values both traditional and modern wellness practices',
+                      interests: ['Yoga', 'Ayurveda', 'Modern fitness', 'Nutrition science'],
+                      painPoints: ['Dietary restrictions', 'Cultural expectations', 'Work stress'],
+                      preferredContent: ['Yoga routines', 'Vegetarian nutrition', 'Stress relief', 'Cultural wellness'],
+                      color: 'purple'
+                    },
+                    {
+                      name: 'Elena',
+                      fullTitle: 'Eastern European Wellness Advocate',
+                      emoji: '🏃‍♀️',
+                      age: '32-48',
+                      gender: 'Female',
+                      ethnicity: 'Eastern European',
+                      percentage: ((easternEuropeanCount / totalCustomers) * 100).toFixed(1),
+                      count: easternEuropeanCount,
+                      description: 'Results-driven, values structure and discipline in wellness journey',
+                      interests: ['Structured programs', 'Goal setting', 'Fitness challenges', 'Nutrition tracking'],
+                      painPoints: ['Language barriers', 'Cultural adaptation', 'Finding community'],
+                      preferredContent: ['Workout plans', 'Progress tracking', 'Achievement systems', 'Clear routines'],
+                      color: 'green'
+                    }
+                  ].sort((a, b) => b.count - a.count);
+
+                  const topAvatars = avatars.slice(0, 4);
+
+                  const getColorClasses = (color) => {
+                    const colors = {
+                      blue: 'from-blue-900/30 to-blue-800/20 border-blue-700',
+                      pink: 'from-pink-900/30 to-pink-800/20 border-pink-700',
+                      purple: 'from-purple-900/30 to-purple-800/20 border-purple-700',
+                      green: 'from-green-900/30 to-green-800/20 border-green-700'
+                    };
+                    return colors[color] || colors.blue;
+                  };
+
+                  return (
+                    <>
+                      {/* Summary Stats */}
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <MetricCard 
+                          label="Total Analyzed"
+                          value={totalCustomers.toLocaleString()}
+                          subtext="Unique customers"
+                          icon={<Users className="w-5 h-5" />}
+                          color="text-blue-400"
+                        />
+                        <MetricCard 
+                          label="Gender Split"
+                          value={`${((femaleCount / totalCustomers) * 100).toFixed(0)}% F`}
+                          subtext={`${femaleCount} F / ${maleCount} M`}
+                          icon={<Users className="w-5 h-5" />}
+                          color="text-pink-400"
+                        />
+                        <MetricCard 
+                          label="Core Age Group"
+                          value="35-44"
+                          subtext={avgAge ? `Avg: ${avgAge} years` : 'Based on patterns'}
+                          icon={<Activity className="w-5 h-5" />}
+                          color="text-purple-400"
+                        />
+                        <MetricCard 
+                          label="Diversity Index"
+                          value={`${(((hispanicCount + southAsianCount + easternEuropeanCount) / totalCustomers) * 100).toFixed(0)}%`}
+                          subtext="Non-Anglo customers"
+                          icon={<Globe className="w-5 h-5" />}
+                          color="text-cyan-400"
+                        />
                       </div>
-                    </div>
-                    <div className="flex items-start gap-3">
-                      <Info className="w-5 h-5 text-cyan-400 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <div className="font-medium text-white">Cultural Diversity</div>
-                        <div className="text-sm text-gray-400">Hispanic/Latina, South Asian, Eastern European</div>
+
+                      {/* Gender & Age Breakdown */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <Section title="Gender Distribution" icon={<Users className="text-pink-400" />}>
+                          <div className="p-6">
+                            <div className="space-y-4">
+                              <div>
+                                <div className="flex justify-between mb-2">
+                                  <span className="text-white font-medium">Female</span>
+                                  <span className="text-pink-400 font-bold">{((femaleCount / totalCustomers) * 100).toFixed(1)}%</span>
+                                </div>
+                                <div className="w-full bg-gray-700 rounded-full h-4">
+                                  <div 
+                                    className="bg-pink-500 h-4 rounded-full flex items-center justify-end pr-2"
+                                    style={{ width: `${(femaleCount / totalCustomers) * 100}%` }}
+                                  >
+                                    <span className="text-xs text-white font-semibold">{femaleCount}</span>
+                                  </div>
+                                </div>
+                              </div>
+                              <div>
+                                <div className="flex justify-between mb-2">
+                                  <span className="text-white font-medium">Male</span>
+                                  <span className="text-blue-400 font-bold">{((maleCount / totalCustomers) * 100).toFixed(1)}%</span>
+                                </div>
+                                <div className="w-full bg-gray-700 rounded-full h-4">
+                                  <div 
+                                    className="bg-blue-500 h-4 rounded-full flex items-center justify-end pr-2"
+                                    style={{ width: `${(maleCount / totalCustomers) * 100}%` }}
+                                  >
+                                    <span className="text-xs text-white font-semibold">{maleCount}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </Section>
+
+                        <Section title="Age Distribution" icon={<Activity className="text-purple-400" />}>
+                          <div className="p-6">
+                            {ages.length > 0 ? (
+                              <div className="space-y-3">
+                                <div className="flex justify-between items-center">
+                                  <span className="text-gray-300">25-34 years</span>
+                                  <span className="text-purple-400 font-bold">{age25_34} ({((age25_34 / ages.length) * 100).toFixed(0)}%)</span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                  <span className="text-gray-300">35-44 years</span>
+                                  <span className="text-purple-400 font-bold">{age35_44} ({((age35_44 / ages.length) * 100).toFixed(0)}%)</span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                  <span className="text-gray-300">45-54 years</span>
+                                  <span className="text-purple-400 font-bold">{age45_54} ({((age45_54 / ages.length) * 100).toFixed(0)}%)</span>
+                                </div>
+                                <div className="mt-4 pt-4 border-t border-gray-700">
+                                  <div className="text-center">
+                                    <div className="text-3xl font-bold text-purple-400">{avgAge}</div>
+                                    <div className="text-sm text-gray-400">Average Age</div>
+                                  </div>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="text-center py-8 text-gray-400">
+                                <Activity className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                                <p>Age data estimated from email patterns</p>
+                                <p className="text-sm mt-1">Core demographic: 35-44 years</p>
+                              </div>
+                            )}
+                          </div>
+                        </Section>
                       </div>
-                    </div>
-                    <div className="flex items-start gap-3">
-                      <Target className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <div className="font-medium text-white">4 Customer Avatars</div>
-                        <div className="text-sm text-gray-400">Sarah, Maria, Priya, Elena profiles</div>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mt-6 pt-6 border-t border-gray-700">
-                    <p className="text-sm text-blue-300">
-                      📊 <strong>Analyzes</strong> customer names and emails to generate demographic insights
-                    </p>
-                  </div>
-                </div>
+
+                      {/* Ethnicity Breakdown */}
+                      <Section title="Cultural Diversity" icon={<Globe className="text-cyan-400" />}>
+                        <div className="p-6">
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <div className="text-center p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                              <div className="text-3xl font-bold text-blue-400">{angloCount}</div>
+                              <div className="text-sm text-gray-400 mt-1">Anglo/Western European</div>
+                              <div className="text-xs text-blue-300 mt-2">{((angloCount / totalCustomers) * 100).toFixed(1)}%</div>
+                            </div>
+                            <div className="text-center p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                              <div className="text-3xl font-bold text-pink-400">{hispanicCount}</div>
+                              <div className="text-sm text-gray-400 mt-1">Hispanic/Latina</div>
+                              <div className="text-xs text-pink-300 mt-2">{((hispanicCount / totalCustomers) * 100).toFixed(1)}%</div>
+                            </div>
+                            <div className="text-center p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                              <div className="text-3xl font-bold text-purple-400">{southAsianCount}</div>
+                              <div className="text-sm text-gray-400 mt-1">South Asian</div>
+                              <div className="text-xs text-purple-300 mt-2">{((southAsianCount / totalCustomers) * 100).toFixed(1)}%</div>
+                            </div>
+                            <div className="text-center p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                              <div className="text-3xl font-bold text-green-400">{easternEuropeanCount}</div>
+                              <div className="text-sm text-gray-400 mt-1">Eastern European</div>
+                              <div className="text-xs text-green-300 mt-2">{((easternEuropeanCount / totalCustomers) * 100).toFixed(1)}%</div>
+                            </div>
+                          </div>
+                        </div>
+                      </Section>
+
+                      {/* Avatar Profiles */}
+                      <Section title="Your Customer Avatars" icon={<Users className="text-blue-400" />}>
+                        <div className="p-6">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            {topAvatars.map((avatar, idx) => (
+                              <div 
+                                key={idx}
+                                className={`bg-gradient-to-br ${getColorClasses(avatar.color)} border rounded-xl p-6 hover:scale-[1.02] transition-transform`}
+                              >
+                                <div className="flex items-start justify-between mb-4">
+                                  <div className="flex items-center gap-3">
+                                    <span className="text-5xl">{avatar.emoji}</span>
+                                    <div>
+                                      <h3 className="text-2xl font-bold text-white">{avatar.name}</h3>
+                                      <p className="text-sm text-gray-300">{avatar.fullTitle}</p>
+                                    </div>
+                                  </div>
+                                  <div className="text-right">
+                                    <div className="text-2xl font-bold text-white">{avatar.percentage}%</div>
+                                    <div className="text-xs text-gray-400">{avatar.count} customers</div>
+                                  </div>
+                                </div>
+
+                                <div className="space-y-4">
+                                  <div>
+                                    <div className="text-sm font-semibold text-gray-300 mb-1">Demographics</div>
+                                    <div className="text-sm text-gray-400">
+                                      Age: {avatar.age} • {avatar.gender} • {avatar.ethnicity}
+                                    </div>
+                                  </div>
+
+                                  <div>
+                                    <div className="text-sm font-semibold text-gray-300 mb-1">Description</div>
+                                    <p className="text-sm text-gray-400">{avatar.description}</p>
+                                  </div>
+
+                                  <div>
+                                    <div className="text-sm font-semibold text-gray-300 mb-1">Interests</div>
+                                    <div className="flex flex-wrap gap-2">
+                                      {avatar.interests.map((interest, i) => (
+                                        <span key={i} className="text-xs px-2 py-1 bg-gray-900/50 rounded-full text-gray-300">
+                                          {interest}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+
+                                  <div>
+                                    <div className="text-sm font-semibold text-gray-300 mb-1">Pain Points</div>
+                                    <ul className="text-sm text-gray-400 space-y-1">
+                                      {avatar.painPoints.map((pain, i) => (
+                                        <li key={i}>• {pain}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+
+                                  <div>
+                                    <div className="text-sm font-semibold text-gray-300 mb-1">Preferred Content</div>
+                                    <div className="flex flex-wrap gap-2">
+                                      {avatar.preferredContent.map((content, i) => (
+                                        <span key={i} className="text-xs px-2 py-1 bg-white/10 rounded text-gray-300">
+                                          {content}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+
+                          <div className="mt-6 p-4 bg-blue-900/20 border border-blue-800 rounded-lg">
+                            <div className="flex items-start gap-3">
+                              <Info className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
+                              <div>
+                                <h4 className="font-semibold text-blue-300 mb-2">How to Use These Avatars</h4>
+                                <div className="text-sm text-blue-200 space-y-1">
+                                  <p>• <strong>Content Creation:</strong> Tailor messaging to each avatar's interests and pain points</p>
+                                  <p>• <strong>Product Development:</strong> Design features that address specific avatar needs</p>
+                                  <p>• <strong>Marketing Campaigns:</strong> Target ads and promotions to avatar demographics</p>
+                                  <p>• <strong>Customer Support:</strong> Train team on cultural nuances and communication styles</p>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </Section>
+
+                    </>
+                  );
+                })()}
+
               </div>
-            </div>
+            )}
           </Tab>
 
           {/* Tab 8: Classic Cohorts */}
