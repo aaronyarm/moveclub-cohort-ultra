@@ -381,7 +381,7 @@ const processData = (data, stripeFeePercent = 7.5, adSpendData = {}, dateRangeDa
   const cohortBuckets = {};
   
   const allTrialCustomers = new Map(); // customerId -> trial start date
-  const customerTransactions = new Map(); // customerId -> array of transactions
+  const cohortCustomerTransactions = new Map(); // customerId -> array of transactions
   const customerCumulativePayments = new Map(); // customerId -> cumulative payment amount
 
   // STEP 1: Collect all customer transactions
@@ -395,15 +395,15 @@ const processData = (data, stripeFeePercent = 7.5, adSpendData = {}, dateRangeDa
     const date = new Date(row[dateCol]);
 
     if ((status === 'Paid' || status === 'paid') && (currency === 'usd' || currency === 'USD') && amount > 0) {
-      if (!customerTransactions.has(cid)) {
-        customerTransactions.set(cid, []);
+      if (!cohortCustomerTransactions.has(cid)) {
+        cohortCustomerTransactions.set(cid, []);
       }
-      customerTransactions.get(cid).push({ amount, date, status, currency });
+      cohortCustomerTransactions.get(cid).push({ amount, date, status, currency });
     }
   });
 
   // STEP 2: Identify TRIAL customers (first payment $0.90-$1.10)
-  customerTransactions.forEach((transactions, cid) => {
+  cohortCustomerTransactions.forEach((transactions, cid) => {
     // Sort by date to find first payment
     transactions.sort((a, b) => a.date - b.date);
     
@@ -422,7 +422,7 @@ const processData = (data, stripeFeePercent = 7.5, adSpendData = {}, dateRangeDa
   const allCustomerPaymentCount = new Map();
   
   allTrialCustomers.forEach((trialDate, cid) => {
-    const transactions = customerTransactions.get(cid) || [];
+    const transactions = cohortCustomerTransactions.get(cid) || [];
     let cumulativeAmount = 0;
     let firstNonTrialPayment = null;
     let subscriptionPaymentCount = 0;
