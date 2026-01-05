@@ -621,15 +621,23 @@ const processData = (data, stripeFeePercent = 2.9, adSpendData = {}, dateRangeDa
     };
   });
 
-  // LTV & Retention Waterfalls
-  const ltvWaterfall = cohortKeys.map(cohortKey => {
+  // LTV Waterfalls - TWO TYPES
+  
+  // TABLE A: Acquisition LTV (Revenue / Total TRIALS)
+  // Target: ~$48 - How much is a raw LEAD worth?
+  const acquisitionLtvWaterfall = cohortKeys.map(cohortKey => {
     const bucket = cohortBuckets[cohortKey];
     const cohortMonthCode = bucket.year * 12 + bucket.month;
     const futureGuard = currentGlobalMonthCode - cohortMonthCode;
     
-    const row = { cohort: cohortKey, size: bucket.paidCustomers.size };
+    const row = { 
+      cohort: cohortKey, 
+      trials: bucket.trials.size,
+      paidSubs: bucket.paidCustomers.size,
+      conversionRate: bucket.trials.size > 0 ? ((bucket.paidCustomers.size / bucket.trials.size) * 100).toFixed(1) : '0.0'
+    };
     
-    for (let m = 0; m <= 6; m++) {
+    for (let m = 0; m <= 12; m++) {
       if (m > futureGuard) {
         row[`m${m}`] = null;
       } else {
@@ -640,6 +648,39 @@ const processData = (data, stripeFeePercent = 2.9, adSpendData = {}, dateRangeDa
           const refunded = bucket.refunded[i] || 0;
           cumulative += (gross - stripeFee - refunded);
         }
+        // Acquisition LTV = Revenue / ALL TRIALS (not just paid)
+        const ltv = bucket.trials.size > 0 ? (cumulative / bucket.trials.size).toFixed(2) : '0.00';
+        row[`m${m}`] = ltv;
+      }
+    }
+    
+    return row;
+  });
+  
+  // TABLE B: Subscriber LTV (Revenue / PAID SUBSCRIBERS ONLY)
+  // Target: ~$140 - How much is a CONVERTED USER worth?
+  const subscriberLtvWaterfall = cohortKeys.map(cohortKey => {
+    const bucket = cohortBuckets[cohortKey];
+    const cohortMonthCode = bucket.year * 12 + bucket.month;
+    const futureGuard = currentGlobalMonthCode - cohortMonthCode;
+    
+    const row = { 
+      cohort: cohortKey, 
+      size: bucket.paidCustomers.size 
+    };
+    
+    for (let m = 0; m <= 12; m++) {
+      if (m > futureGuard) {
+        row[`m${m}`] = null;
+      } else {
+        let cumulative = 0;
+        for (let i = 0; i <= m; i++) {
+          const gross = bucket.gross[i] || 0;
+          const stripeFee = bucket.stripeFees[i] || 0;
+          const refunded = bucket.refunded[i] || 0;
+          cumulative += (gross - stripeFee - refunded);
+        }
+        // Subscriber LTV = Revenue / PAID SUBSCRIBERS (who converted)
         const ltv = bucket.paidCustomers.size > 0 ? (cumulative / bucket.paidCustomers.size).toFixed(2) : '0.00';
         row[`m${m}`] = ltv;
       }
@@ -648,6 +689,7 @@ const processData = (data, stripeFeePercent = 2.9, adSpendData = {}, dateRangeDa
     return row;
   });
 
+  // TABLE C: Retention Waterfall (same as before)
   const retentionWaterfall = cohortKeys.map(cohortKey => {
     const bucket = cohortBuckets[cohortKey];
     const cohortMonthCode = bucket.year * 12 + bucket.month;
@@ -766,7 +808,8 @@ const processData = (data, stripeFeePercent = 2.9, adSpendData = {}, dateRangeDa
       percent: totalConverted > 0 ? ((count / totalConverted) * 100).toFixed(1) : 0
     })),
     refundBreakdown,
-    ltvWaterfall,
+    acquisitionLtvWaterfall,
+    subscriberLtvWaterfall,
     retentionWaterfall,
     churnWaterfall,
     spendVsRevenue
@@ -3628,49 +3671,123 @@ export default function WellnessDashboard() {
               </div>
 
               {/* LTV WATERFALL */}
-              <Section title="Net LTV Waterfall ($)" icon={<DollarSign className="text-emerald-400" />}>
-              <div className="overflow-x-auto p-2">
-              <table className="w-full text-xs">
-              <thead>
-              <tr className="text-gray-500 border-b border-gray-800">
-              <th className="p-2 font-medium text-left">Cohort</th>
-              <th className="p-2 font-medium text-left">Paid</th>
-                  {[0,1,2,3,4,5,6].map(m => (
-              <th key={m} className="p-2 font-medium text-center">M{m}</th>
-                  ))}
-              </tr>
-              </thead>
-              <tbody>
-                {data.ltvWaterfall.map((row, i) => (
-              <tr key={i} className="border-b border-gray-800">
-              <td className="p-2 font-mono text-emerald-300/80">{row.cohort}</td>
-              <td className="p-2 text-gray-400">{row.size}</td>
-                    {[0,1,2,3,4,5,6].map(m => {
-                      const value = row[`m${m}`];
-                      const numValue = parseFloat(value);
-                      const getBgColor = () => {
-                        if (value === null) return 'bg-gray-800';
-                        if (numValue >= 100) return 'bg-emerald-500/90';
-                        if (numValue >= 50) return 'bg-emerald-500/50';
-                        return 'bg-emerald-500/20';
-            };
-                      
-                      return (
-              <td key={m} className={`p-2 text-center ${getBgColor()}`}>
-                          {value !== null 
-                            ? <span className="font-medium text-white">${value}</span> 
-                            : <span className="text-gray-600">-</span>}
-              </td>
-                      );
-            })}
-              </tr>
-                ))}
-              </tbody>
-              </table>
-              </div>
+              {/* ACQUISITION LTV WATERFALL - Table A */}
+              <Section title="Acquisition LTV ($) - Revenue per TRIAL" icon={<DollarSign className="text-blue-400" />}>
+                <div className="p-4 bg-blue-900/20 border border-blue-800 rounded-lg mb-4">
+                  <div className="flex items-start gap-3">
+                    <Info className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="font-semibold text-blue-300 mb-1">What is Acquisition LTV?</h4>
+                      <p className="text-sm text-blue-200">
+                        <strong>Formula:</strong> Cumulative Net Revenue / Total TRIALS
+                      </p>
+                      <p className="text-sm text-blue-200 mt-1">
+                        <strong>Target:</strong> ~$48 - Shows how much a raw LEAD is worth (includes non-converters)
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <div className="overflow-x-auto p-2">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-gray-500 border-b border-gray-800">
+                        <th className="p-2 font-medium text-left">Cohort</th>
+                        <th className="p-2 font-medium text-left">Trials</th>
+                        <th className="p-2 font-medium text-left">Conv%</th>
+                        {[0,1,2,3,4,5,6,7,8,9,10,11,12].map(m => (
+                          <th key={m} className="p-2 font-medium text-center">M{m}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.acquisitionLtvWaterfall.slice().reverse().map((row, i) => (
+                        <tr key={i} className="border-b border-gray-800">
+                          <td className="p-2 font-mono text-blue-300/80">{row.cohort}</td>
+                          <td className="p-2 text-gray-400">{row.trials}</td>
+                          <td className="p-2 text-gray-400">{row.conversionRate}%</td>
+                          {[0,1,2,3,4,5,6,7,8,9,10,11,12].map(m => {
+                            const value = row[`m${m}`];
+                            const numValue = parseFloat(value);
+                            const getBgColor = () => {
+                              if (value === null) return 'bg-gray-800';
+                              if (numValue >= 60) return 'bg-blue-500/90';
+                              if (numValue >= 40) return 'bg-blue-500/50';
+                              return 'bg-blue-500/20';
+                            };
+                            
+                            return (
+                              <td key={m} className={`p-2 text-center ${getBgColor()}`}>
+                                {value !== null 
+                                  ? <span className="font-medium text-white">${value}</span> 
+                                  : <span className="text-gray-600">-</span>}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </Section>
 
-              {/* RETENTION WATERFALL */}
+              {/* SUBSCRIBER LTV WATERFALL - Table B */}
+              <Section title="Subscriber LTV ($) - Revenue per PAID SUBSCRIBER" icon={<DollarSign className="text-emerald-400" />}>
+                <div className="p-4 bg-emerald-900/20 border border-emerald-800 rounded-lg mb-4">
+                  <div className="flex items-start gap-3">
+                    <Info className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="font-semibold text-emerald-300 mb-1">What is Subscriber LTV?</h4>
+                      <p className="text-sm text-emerald-200">
+                        <strong>Formula:</strong> Cumulative Net Revenue / Total PAID SUBSCRIBERS
+                      </p>
+                      <p className="text-sm text-emerald-200 mt-1">
+                        <strong>Target:</strong> ~$140 - Shows how much a CONVERTED user is worth (paid subs only)
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <div className="overflow-x-auto p-2">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-gray-500 border-b border-gray-800">
+                        <th className="p-2 font-medium text-left">Cohort</th>
+                        <th className="p-2 font-medium text-left">Paid</th>
+                        {[0,1,2,3,4,5,6,7,8,9,10,11,12].map(m => (
+                          <th key={m} className="p-2 font-medium text-center">M{m}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.subscriberLtvWaterfall.slice().reverse().map((row, i) => (
+                        <tr key={i} className="border-b border-gray-800">
+                          <td className="p-2 font-mono text-emerald-300/80">{row.cohort}</td>
+                          <td className="p-2 text-gray-400">{row.size}</td>
+                          {[0,1,2,3,4,5,6,7,8,9,10,11,12].map(m => {
+                            const value = row[`m${m}`];
+                            const numValue = parseFloat(value);
+                            const getBgColor = () => {
+                              if (value === null) return 'bg-gray-800';
+                              if (numValue >= 150) return 'bg-emerald-500/90';
+                              if (numValue >= 100) return 'bg-emerald-500/50';
+                              return 'bg-emerald-500/20';
+                            };
+                            
+                            return (
+                              <td key={m} className={`p-2 text-center ${getBgColor()}`}>
+                                {value !== null 
+                                  ? <span className="font-medium text-white">${value}</span> 
+                                  : <span className="text-gray-600">-</span>}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Section>
+
+              {/* RETENTION WATERFALL - Table C */}
               <Section title="Retention Waterfall (% Active)" icon={<Users className="text-blue-400" />}>
               <div className="overflow-x-auto p-2">
               <table className="w-full text-xs">
