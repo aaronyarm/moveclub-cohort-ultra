@@ -418,7 +418,7 @@ const processData = (data, stripeFeePercent = 7.5, adSpendData = {}, dateRangeDa
   // 1. Cumulative payments > $2.00 (excludes trial fee)
   // 2. First non-trial payment occurs >7 days after trial start
   // 3. Status is Paid and Currency is USD
-  const paidCustomers = new Set();
+  const strictPaidCustomers = new Set();
   const allCustomerPaymentCount = new Map();
   
   allTrialCustomers.forEach((trialDate, cid) => {
@@ -444,7 +444,7 @@ const processData = (data, stripeFeePercent = 7.5, adSpendData = {}, dateRangeDa
       const daysSinceTrial = Math.floor((firstNonTrialPayment.date - trialDate) / (1000 * 60 * 60 * 24));
       
       if (daysSinceTrial > 7) {
-        paidCustomers.add(cid);
+        strictPaidCustomers.add(cid);
         customerCumulativePayments.set(cid, cumulativeAmount);
         allCustomerPaymentCount.set(cid, subscriptionPaymentCount);
       }
@@ -470,12 +470,12 @@ const processData = (data, stripeFeePercent = 7.5, adSpendData = {}, dateRangeDa
     cohortBuckets[cohortKey].trials.add(customerId);
     
     // Active trials: started within last 7 days AND not yet converted to paid
-    if (trialDate >= activeTrialThreshold && !paidCustomers.has(customerId)) {
+    if (trialDate >= activeTrialThreshold && !strictPaidCustomers.has(customerId)) {
       cohortBuckets[cohortKey].activeTrials.add(customerId);
     }
     
     // Add to paid customers if they meet criteria
-    if (paidCustomers.has(customerId)) {
+    if (strictPaidCustomers.has(customerId)) {
       cohortBuckets[cohortKey].paidCustomers.add(customerId);
       
       // Second+ paid: customers with 2 or more subscription payments (> $2.00)
