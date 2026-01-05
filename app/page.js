@@ -447,9 +447,13 @@ const processData = (data, stripeFeePercent = 2.9, adSpendData = {}, dateRangeDa
     }
   });
 
-  // STEP 4: Create cohort buckets by trial start month
+  // STEP 4: Create cohort buckets by trial start WEEK
   allTrialCustomers.forEach((trialDate, customerId) => {
-    const cohortKey = `${trialDate.getUTCFullYear()}-${String(trialDate.getUTCMonth() + 1).padStart(2, '0')}`;
+    // Calculate week number: YYYY-WXX format
+    const startOfYear = new Date(trialDate.getUTCFullYear(), 0, 1);
+    const daysSinceYearStart = Math.floor((trialDate - startOfYear) / (1000 * 60 * 60 * 24));
+    const weekNumber = Math.ceil((daysSinceYearStart + 1) / 7);
+    const cohortKey = `${trialDate.getUTCFullYear()}-W${String(weekNumber).padStart(2, '0')}`;
     
     if (!cohortBuckets[cohortKey]) {
       cohortBuckets[cohortKey] = {
@@ -459,7 +463,8 @@ const processData = (data, stripeFeePercent = 2.9, adSpendData = {}, dateRangeDa
         secondPlusPaid: new Set(),
         revenue: {}, active: {}, gross: {}, refunded: {}, stripeFees: {},
         year: trialDate.getUTCFullYear(),
-        month: trialDate.getUTCMonth()
+        weekNumber: weekNumber,
+        startDate: trialDate
       };
     }
     
@@ -497,14 +502,19 @@ const processData = (data, stripeFeePercent = 2.9, adSpendData = {}, dateRangeDa
       const trialStartDate = allTrialCustomers.get(cid);
       if (!trialStartDate) return;
 
-      const cohortKey = `${trialStartDate.getUTCFullYear()}-${String(trialStartDate.getUTCMonth() + 1).padStart(2, '0')}`;
+      // Calculate cohort key using weeks
+      const startOfYear = new Date(trialStartDate.getUTCFullYear(), 0, 1);
+      const daysSinceYearStart = Math.floor((trialStartDate - startOfYear) / (1000 * 60 * 60 * 24));
+      const weekNumber = Math.ceil((daysSinceYearStart + 1) / 7);
+      const cohortKey = `${trialStartDate.getUTCFullYear()}-W${String(weekNumber).padStart(2, '0')}`;
       
       if (!cohortBuckets[cohortKey]) return;
 
-      const timeIndex = (txDate.getUTCFullYear() - trialStartDate.getUTCFullYear()) * 12 + 
-                        (txDate.getUTCMonth() - trialStartDate.getUTCMonth());
+      // Calculate weeks since trial (W0, W1, W2, etc.)
+      const daysSinceTrial = Math.floor((txDate - trialStartDate) / (1000 * 60 * 60 * 24));
+      const timeIndex = Math.floor(daysSinceTrial / 7);
 
-      if (timeIndex < 0 || timeIndex > 12) return;
+      if (timeIndex < 0 || timeIndex > 52) return; // 52 weeks = 1 year
 
       const stripeFee = amount * (stripeFeePercent / 100);
       const net = amount - stripeFee;
@@ -544,14 +554,19 @@ const processData = (data, stripeFeePercent = 2.9, adSpendData = {}, dateRangeDa
       const trialStartDate = allTrialCustomers.get(cid);
       if (!trialStartDate) return;
 
-      const cohortKey = `${trialStartDate.getUTCFullYear()}-${String(trialStartDate.getUTCMonth() + 1).padStart(2, '0')}`;
+      // Calculate cohort key using weeks
+      const startOfYear = new Date(trialStartDate.getUTCFullYear(), 0, 1);
+      const daysSinceYearStart = Math.floor((trialStartDate - startOfYear) / (1000 * 60 * 60 * 24));
+      const weekNumber = Math.ceil((daysSinceYearStart + 1) / 7);
+      const cohortKey = `${trialStartDate.getUTCFullYear()}-W${String(weekNumber).padStart(2, '0')}`;
       
       if (!cohortBuckets[cohortKey]) return;
 
-      const timeIndex = (txDate.getUTCFullYear() - trialStartDate.getUTCFullYear()) * 12 + 
-                        (txDate.getUTCMonth() - trialStartDate.getUTCMonth());
+      // Calculate weeks since trial
+      const daysSinceTrial = Math.floor((txDate - trialStartDate) / (1000 * 60 * 60 * 24));
+      const timeIndex = Math.floor(daysSinceTrial / 7);
 
-      if (timeIndex < 0 || timeIndex > 12) return;
+      if (timeIndex < 0 || timeIndex > 52) return;
 
       if (!cohortBuckets[cohortKey].refunded[timeIndex]) {
         cohortBuckets[cohortKey].refunded[timeIndex] = 0;
@@ -567,8 +582,10 @@ const processData = (data, stripeFeePercent = 2.9, adSpendData = {}, dateRangeDa
   const cohortKeys = Object.keys(cohortBuckets).sort();
   const cohortTable = cohortKeys.map(cohortKey => {
     const bucket = cohortBuckets[cohortKey];
-    const cohortMonthCode = bucket.year * 12 + bucket.month;
-    const futureGuard = currentGlobalMonthCode - cohortMonthCode;
+    
+    // Future guard based on weeks elapsed since cohort start
+    const weeksSinceCohort = Math.floor((maxDate - bucket.startDate) / (1000 * 60 * 60 * 24 * 7));
+    const futureGuard = weeksSinceCohort;
     
     const trials = bucket.trials.size;
     const activeTrialsCount = bucket.activeTrials.size;
@@ -581,11 +598,11 @@ const processData = (data, stripeFeePercent = 2.9, adSpendData = {}, dateRangeDa
     let cumulativeStripeFees = 0;
     let cumulativeRefunds = 0;
 
-    for (let m = 0; m <= 12; m++) {
-      if (m <= futureGuard) {
-        const gross = bucket.gross[m] || 0;
-        const stripeFee = bucket.stripeFees[m] || 0;
-        const refunded = bucket.refunded[m] || 0;
+    for (let w = 0; w <= 52; w++) { // 52 weeks = 1 year
+      if (w <= futureGuard) {
+        const gross = bucket.gross[w] || 0;
+        const stripeFee = bucket.stripeFees[w] || 0;
+        const refunded = bucket.refunded[w] || 0;
         
         cumulativeRevenue += (gross - stripeFee - refunded);
         cumulativeGross += gross;
@@ -621,14 +638,14 @@ const processData = (data, stripeFeePercent = 2.9, adSpendData = {}, dateRangeDa
     };
   });
 
-  // LTV Waterfalls - TWO TYPES
+  // LTV Waterfalls - TWO TYPES (by WEEKS)
   
   // TABLE A: Acquisition LTV (Revenue / Total TRIALS)
   // Target: ~$48 - How much is a raw LEAD worth?
   const acquisitionLtvWaterfall = cohortKeys.map(cohortKey => {
     const bucket = cohortBuckets[cohortKey];
-    const cohortMonthCode = bucket.year * 12 + bucket.month;
-    const futureGuard = currentGlobalMonthCode - cohortMonthCode;
+    const weeksSinceCohort = Math.floor((maxDate - bucket.startDate) / (1000 * 60 * 60 * 24 * 7));
+    const futureGuard = weeksSinceCohort;
     
     const row = { 
       cohort: cohortKey, 
@@ -637,12 +654,13 @@ const processData = (data, stripeFeePercent = 2.9, adSpendData = {}, dateRangeDa
       conversionRate: bucket.trials.size > 0 ? ((bucket.paidCustomers.size / bucket.trials.size) * 100).toFixed(1) : '0.0'
     };
     
-    for (let m = 0; m <= 12; m++) {
-      if (m > futureGuard) {
-        row[`m${m}`] = null;
+    // Calculate for W0, W1, W2 ... W52 (52 weeks = 1 year)
+    for (let w = 0; w <= 52; w++) {
+      if (w > futureGuard) {
+        row[`w${w}`] = null;
       } else {
         let cumulative = 0;
-        for (let i = 0; i <= m; i++) {
+        for (let i = 0; i <= w; i++) {
           const gross = bucket.gross[i] || 0;
           const stripeFee = bucket.stripeFees[i] || 0;
           const refunded = bucket.refunded[i] || 0;
@@ -650,7 +668,7 @@ const processData = (data, stripeFeePercent = 2.9, adSpendData = {}, dateRangeDa
         }
         // Acquisition LTV = Revenue / ALL TRIALS (not just paid)
         const ltv = bucket.trials.size > 0 ? (cumulative / bucket.trials.size).toFixed(2) : '0.00';
-        row[`m${m}`] = ltv;
+        row[`w${w}`] = ltv;
       }
     }
     
@@ -661,20 +679,21 @@ const processData = (data, stripeFeePercent = 2.9, adSpendData = {}, dateRangeDa
   // Target: ~$140 - How much is a CONVERTED USER worth?
   const subscriberLtvWaterfall = cohortKeys.map(cohortKey => {
     const bucket = cohortBuckets[cohortKey];
-    const cohortMonthCode = bucket.year * 12 + bucket.month;
-    const futureGuard = currentGlobalMonthCode - cohortMonthCode;
+    const weeksSinceCohort = Math.floor((maxDate - bucket.startDate) / (1000 * 60 * 60 * 24 * 7));
+    const futureGuard = weeksSinceCohort;
     
     const row = { 
       cohort: cohortKey, 
       size: bucket.paidCustomers.size 
     };
     
-    for (let m = 0; m <= 12; m++) {
-      if (m > futureGuard) {
-        row[`m${m}`] = null;
+    // Calculate for W0, W1, W2 ... W52 (52 weeks = 1 year)
+    for (let w = 0; w <= 52; w++) {
+      if (w > futureGuard) {
+        row[`w${w}`] = null;
       } else {
         let cumulative = 0;
-        for (let i = 0; i <= m; i++) {
+        for (let i = 0; i <= w; i++) {
           const gross = bucket.gross[i] || 0;
           const stripeFee = bucket.stripeFees[i] || 0;
           const refunded = bucket.refunded[i] || 0;
@@ -682,14 +701,14 @@ const processData = (data, stripeFeePercent = 2.9, adSpendData = {}, dateRangeDa
         }
         // Subscriber LTV = Revenue / PAID SUBSCRIBERS (who converted)
         const ltv = bucket.paidCustomers.size > 0 ? (cumulative / bucket.paidCustomers.size).toFixed(2) : '0.00';
-        row[`m${m}`] = ltv;
+        row[`w${w}`] = ltv;
       }
     }
     
     return row;
   });
 
-  // TABLE C: Retention Waterfall (same as before)
+  // TABLE C: Retention Waterfall
   const retentionWaterfall = cohortKeys.map(cohortKey => {
     const bucket = cohortBuckets[cohortKey];
     const cohortMonthCode = bucket.year * 12 + bucket.month;
