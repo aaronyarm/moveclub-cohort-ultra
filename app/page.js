@@ -105,7 +105,7 @@ const MetricCard = ({ label, value, subtext, color = "text-white", trend, icon }
 
 // ==================== CORE DATA PROCESSING ====================
 
-const processData = (data, stripeFeePercent = 7.5, adSpendData = {}, dateRangeDays = null) => {
+const processData = (data, stripeFeePercent = 2.9, adSpendData = {}, dateRangeDays = null) => {
   if (!data || data.length === 0) return null;
 
   const sampleRow = data[0];
@@ -414,40 +414,36 @@ const processData = (data, stripeFeePercent = 7.5, adSpendData = {}, dateRangeDa
   });
 
   // STEP 3: Identify PAID customers (STRICT DEFINITION)
-  // A customer is "Paid" (Converted) ONLY if:
-  // 1. Cumulative payments > $2.00 (excludes trial fee)
-  // 2. First non-trial payment occurs >7 days after trial start
-  // 3. Status is Paid and Currency is USD
+  // A user is "Paid Customer" ONLY if ALL criteria met:
+  // 1. Status = "Paid" (case-insensitive) - already filtered
+  // 2. Currency = "USD" (case-insensitive) - already filtered
+  // 3. Amount > $2.00 (strictly greater, excludes trials)
+  // 4. Payment occurs >7 days after Trial Start Date
   const strictPaidCustomers = new Set();
   const allCustomerPaymentCount = new Map();
   
   allTrialCustomers.forEach((trialDate, cid) => {
     const transactions = cohortCustomerTransactions.get(cid) || [];
-    let cumulativeAmount = 0;
-    let firstNonTrialPayment = null;
     let subscriptionPaymentCount = 0;
+    let hasPaidSubscription = false;
     
     transactions.forEach(tx => {
-      cumulativeAmount += tx.amount;
-      
-      // Track non-trial payments (> $2.00)
+      // Check if this is a subscription payment (>$2.00)
       if (tx.amount > 2.00) {
-        subscriptionPaymentCount++;
-        if (!firstNonTrialPayment) {
-          firstNonTrialPayment = tx;
+        const daysSinceTrial = Math.floor((tx.date - trialDate) / (1000 * 60 * 60 * 24));
+        
+        // Check if payment is >7 days after trial
+        if (daysSinceTrial > 7) {
+          hasPaidSubscription = true;
+          subscriptionPaymentCount++;
         }
       }
     });
     
-    // Check STRICT criteria
-    if (cumulativeAmount > 2.00 && firstNonTrialPayment) {
-      const daysSinceTrial = Math.floor((firstNonTrialPayment.date - trialDate) / (1000 * 60 * 60 * 24));
-      
-      if (daysSinceTrial > 7) {
-        strictPaidCustomers.add(cid);
-        customerCumulativePayments.set(cid, cumulativeAmount);
-        allCustomerPaymentCount.set(cid, subscriptionPaymentCount);
-      }
+    // Only mark as paid if they have at least one qualifying payment
+    if (hasPaidSubscription) {
+      strictPaidCustomers.add(cid);
+      allCustomerPaymentCount.set(cid, subscriptionPaymentCount);
     }
   });
 
@@ -781,7 +777,7 @@ const processData = (data, stripeFeePercent = 7.5, adSpendData = {}, dateRangeDa
 
 export default function WellnessDashboard() {
   const [rawData, setRawData] = useState(null);
-  const [stripeFeePercent, setStripeFeePercent] = useState(7.5);
+  const [stripeFeePercent, setStripeFeePercent] = useState(2.9);
   const [adSpendData, setAdSpendData] = useState({});
   const [dateRangeDays, setDateRangeDays] = useState(null);
   const [columnOrder, setColumnOrder] = useState(DEFAULT_COLUMN_ORDER);
