@@ -380,10 +380,11 @@ const processData = (data, stripeFeePercent = 7.5, adSpendData = {}, dateRangeDa
   const currentGlobalMonthCode = maxDate.getUTCFullYear() * 12 + maxDate.getUTCMonth();
   const cohortBuckets = {};
   
-  const allTrialCustomers = new Map();
-  const allPaidCustomers = new Map();
-  const allCustomerPaymentCount = new Map();
+  const allTrialCustomers = new Map(); // customerId -> trial start date
+  const customerTransactions = new Map(); // customerId -> array of transactions
+  const customerCumulativePayments = new Map(); // customerId -> cumulative payment amount
 
+  // STEP 1: Collect all customer transactions
   data.forEach(row => {
     const cid = row[customerCol];
     if (!cid) return;
@@ -394,27 +395,63 @@ const processData = (data, stripeFeePercent = 7.5, adSpendData = {}, dateRangeDa
     const date = new Date(row[dateCol]);
 
     if ((status === 'Paid' || status === 'paid') && (currency === 'usd' || currency === 'USD') && amount > 0) {
-      // Track trial payments ($0.99)
-      if (amount >= 0.90 && amount <= 1.10) {
-        if (!allTrialCustomers.has(cid)) {
-          allTrialCustomers.set(cid, date);
+      if (!customerTransactions.has(cid)) {
+        customerTransactions.set(cid, []);
+      }
+      customerTransactions.get(cid).push({ amount, date, status, currency });
+    }
+  });
+
+  // STEP 2: Identify TRIAL customers (first payment $0.90-$1.10)
+  customerTransactions.forEach((transactions, cid) => {
+    // Sort by date to find first payment
+    transactions.sort((a, b) => a.date - b.date);
+    
+    const firstPayment = transactions[0];
+    if (firstPayment.amount >= 0.90 && firstPayment.amount <= 1.10) {
+      allTrialCustomers.set(cid, firstPayment.date);
+    }
+  });
+
+  // STEP 3: Identify PAID customers (STRICT DEFINITION)
+  // A customer is "Paid" (Converted) ONLY if:
+  // 1. Cumulative payments > $2.00 (excludes trial fee)
+  // 2. First non-trial payment occurs >7 days after trial start
+  // 3. Status is Paid and Currency is USD
+  const paidCustomers = new Set();
+  const allCustomerPaymentCount = new Map();
+  
+  allTrialCustomers.forEach((trialDate, cid) => {
+    const transactions = customerTransactions.get(cid) || [];
+    let cumulativeAmount = 0;
+    let firstNonTrialPayment = null;
+    let subscriptionPaymentCount = 0;
+    
+    transactions.forEach(tx => {
+      cumulativeAmount += tx.amount;
+      
+      // Track non-trial payments (> $2.00)
+      if (tx.amount > 2.00) {
+        subscriptionPaymentCount++;
+        if (!firstNonTrialPayment) {
+          firstNonTrialPayment = tx;
         }
       }
+    });
+    
+    // Check STRICT criteria
+    if (cumulativeAmount > 2.00 && firstNonTrialPayment) {
+      const daysSinceTrial = Math.floor((firstNonTrialPayment.date - trialDate) / (1000 * 60 * 60 * 24));
       
-      // FIXED: Include ALL paying customers (even $0.99 trial-only)
-      // This ensures LTV denominator includes trial-only churners
-      if (!allPaidCustomers.has(cid)) {
-        allPaidCustomers.set(cid, date);
-      }
-      
-      // Track multiple payments (for secondPlusPaid metric)
-      // Only count payments > $2 as "subscription" payments
-      if (amount > 2.00) {
-        allCustomerPaymentCount.set(cid, (allCustomerPaymentCount.get(cid) || 0) + 1);
+      if (daysSinceTrial > 7) {
+        paidCustomers.add(cid);
+        customerCumulativePayments.set(cid, cumulativeAmount);
+        allCustomerPaymentCount.set(cid, subscriptionPaymentCount);
       }
     }
   });
 
+  // STEP 4: Create cohort buckets by trial start month
   allTrialCustomers.forEach((trialDate, customerId) => {
     const cohortKey = `${trialDate.getUTCFullYear()}-${String(trialDate.getUTCMonth() + 1).padStart(2, '0')}`;
     
@@ -432,13 +469,16 @@ const processData = (data, stripeFeePercent = 7.5, adSpendData = {}, dateRangeDa
     
     cohortBuckets[cohortKey].trials.add(customerId);
     
-    if (trialDate >= activeTrialThreshold && !allPaidCustomers.has(customerId)) {
+    // Active trials: started within last 7 days AND not yet converted to paid
+    if (trialDate >= activeTrialThreshold && !paidCustomers.has(customerId)) {
       cohortBuckets[cohortKey].activeTrials.add(customerId);
     }
     
-    if (allPaidCustomers.has(customerId)) {
+    // Add to paid customers if they meet criteria
+    if (paidCustomers.has(customerId)) {
       cohortBuckets[cohortKey].paidCustomers.add(customerId);
       
+      // Second+ paid: customers with 2 or more subscription payments (> $2.00)
       if ((allCustomerPaymentCount.get(customerId) || 0) >= 2) {
         cohortBuckets[cohortKey].secondPlusPaid.add(customerId);
       }
@@ -660,6 +700,36 @@ const processData = (data, stripeFeePercent = 7.5, adSpendData = {}, dateRangeDa
     return row;
   });
 
+  // CHURN COHORT ANALYSIS
+  // Calculate month-over-month churn rates
+  const churnWaterfall = cohortKeys.map(cohortKey => {
+    const bucket = cohortBuckets[cohortKey];
+    const cohortMonthCode = bucket.year * 12 + bucket.month;
+    const futureGuard = currentGlobalMonthCode - cohortMonthCode;
+    
+    const row = { cohort: cohortKey, size: bucket.paidCustomers.size };
+    
+    // Start at M1 (M0 is acquisition, typically 100%)
+    for (let m = 1; m <= 6; m++) {
+      if (m > futureGuard) {
+        row[`m${m}`] = null;
+      } else {
+        const previousMonth = bucket.active[m - 1]?.size || 0;
+        const currentMonth = bucket.active[m]?.size || 0;
+        
+        if (previousMonth === 0) {
+          row[`m${m}`] = '0.0';
+        } else {
+          // Churn = (Previous - Current) / Previous * 100
+          const churnRate = ((previousMonth - currentMonth) / previousMonth * 100);
+          row[`m${m}`] = churnRate.toFixed(1);
+        }
+      }
+    }
+    
+    return row;
+  });
+
   // Spend vs Revenue Chart
   const spendVsRevenue = cohortKeys.map(cohortKey => {
     const bucket = cohortBuckets[cohortKey];
@@ -702,6 +772,7 @@ const processData = (data, stripeFeePercent = 7.5, adSpendData = {}, dateRangeDa
     refundBreakdown,
     ltvWaterfall,
     retentionWaterfall,
+    churnWaterfall,
     spendVsRevenue
   };
 };
@@ -2283,11 +2354,26 @@ export default function WellnessDashboard() {
                       
                       // Subscription breakdown (payments > $2)
                       if (amount > 2.00) {
-                        const subType = amount >= 0.90 && amount <= 1.10 ? 'Trial ($0.99)' : 
-                                       amount >= 40 && amount <= 60 ? 'Monthly ($49.99)' :
-                                       amount >= 280 && amount <= 320 ? 'Annual ($299.99)' :
-                                       amount >= 140 && amount <= 160 ? 'Quarterly ($149.99)' :
-                                       `Other ($${amount.toFixed(0)})`;
+                        // Use product name from CSV if available, otherwise use amount-based naming
+                        let subType;
+                        if (product && product !== 'Standard' && product.trim() !== '') {
+                          // Use actual product name from Stripe
+                          subType = `${product} ($${amount.toFixed(2)})`;
+                        } else {
+                          // Fallback to amount-based categories
+                          if (amount >= 0.90 && amount <= 1.10) {
+                            subType = 'Trial ($0.99)';
+                          } else if (amount >= 40 && amount <= 60) {
+                            subType = 'Monthly ($49.99)';
+                          } else if (amount >= 280 && amount <= 320) {
+                            subType = 'Annual ($299.99)';
+                          } else if (amount >= 140 && amount <= 160) {
+                            subType = 'Quarterly ($149.99)';
+                          } else {
+                            subType = `Custom Plan ($${amount.toFixed(2)})`;
+                          }
+                        }
+                        
                         subscriptionTypes.set(subType, (subscriptionTypes.get(subType) || 0) + 1);
                         
                         if (product) {
@@ -3629,6 +3715,65 @@ export default function WellnessDashboard() {
               </tbody>
               </table>
               </div>
+              </Section>
+
+              {/* CHURN COHORT ANALYSIS */}
+              <Section title="Monthly Churn Rate (%) - Cohort View" icon={<TrendingDown className="text-red-400" />}>
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse text-sm">
+                    <thead>
+                      <tr className="bg-gray-900 border-b border-gray-700">
+                        <th className="sticky left-0 bg-gray-900 z-10 text-left px-4 py-3 text-gray-300 font-semibold border-r border-gray-700">Cohort</th>
+                        <th className="px-4 py-3 text-gray-300 font-semibold">M1</th>
+                        <th className="px-4 py-3 text-gray-300 font-semibold">M2</th>
+                        <th className="px-4 py-3 text-gray-300 font-semibold">M3</th>
+                        <th className="px-4 py-3 text-gray-300 font-semibold">M4</th>
+                        <th className="px-4 py-3 text-gray-300 font-semibold">M5</th>
+                        <th className="px-4 py-3 text-gray-300 font-semibold">M6</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.churnWaterfall.slice().reverse().map((row, idx) => (
+                        <tr key={idx} className="border-b border-gray-800 hover:bg-gray-800/50 transition-colors">
+                          <td className="sticky left-0 bg-gray-900 z-10 px-4 py-3 font-semibold text-white border-r border-gray-700">
+                            {row.cohort}
+                          </td>
+                          {['m1', 'm2', 'm3', 'm4', 'm5', 'm6'].map(month => {
+                            const value = row[month];
+                            if (value === null) {
+                              return <td key={month} className="px-4 py-3 text-center text-gray-600">—</td>;
+                            }
+                            const churnRate = parseFloat(value);
+                            // Color code: Green (low churn <15%), Yellow (medium 15-30%), Red (high >30%)
+                            let colorClass = 'text-green-400';
+                            if (churnRate >= 30) colorClass = 'text-red-400';
+                            else if (churnRate >= 15) colorClass = 'text-yellow-400';
+                            
+                            return (
+                              <td key={month} className={`px-4 py-3 text-center font-semibold ${colorClass}`}>
+                                {value}%
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="mt-4 p-4 bg-red-900/20 border border-red-800 rounded-lg">
+                  <div className="flex items-start gap-3">
+                    <Info className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="font-semibold text-red-300 mb-1">Understanding Churn Rates</h4>
+                      <div className="text-sm text-red-200">
+                        <p><span className="text-green-400">● Green (&lt;15%)</span> - Healthy retention</p>
+                        <p><span className="text-yellow-400">● Yellow (15-30%)</span> - Monitor closely</p>
+                        <p><span className="text-red-400">● Red (&gt;30%)</span> - High churn risk</p>
+                        <p className="mt-2">Formula: Churn(M) = (Active Users M-1 - Active Users M) / Active Users M-1 × 100</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </Section>
 
               {/* SPEND VS REVENUE */}
