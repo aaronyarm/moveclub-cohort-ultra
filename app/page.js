@@ -105,7 +105,7 @@ const MetricCard = ({ label, value, subtext, color = "text-white", trend, icon }
 
 // ==================== CORE DATA PROCESSING ====================
 
-const processData = (data, stripeFeePercent = 2.9, adSpendData = {}, dateRangeDays = null) => {
+const processData = (data, stripeFeePercent = 7.5, adSpendData = {}, dateRangeDays = null) => {
   if (!data || data.length === 0) return null;
 
   const sampleRow = data[0];
@@ -380,11 +380,10 @@ const processData = (data, stripeFeePercent = 2.9, adSpendData = {}, dateRangeDa
   const currentGlobalMonthCode = maxDate.getUTCFullYear() * 12 + maxDate.getUTCMonth();
   const cohortBuckets = {};
   
-  const allTrialCustomers = new Map(); // customerId -> trial start date
-  const cohortCustomerTransactions = new Map(); // customerId -> array of transactions
-  const customerCumulativePayments = new Map(); // customerId -> cumulative payment amount
+  const allTrialCustomers = new Map();
+  const allPaidCustomers = new Map();
+  const allCustomerPaymentCount = new Map();
 
-  // STEP 1: Collect all customer transactions
   data.forEach(row => {
     const cid = row[customerCol];
     if (!cid) return;
@@ -395,65 +394,29 @@ const processData = (data, stripeFeePercent = 2.9, adSpendData = {}, dateRangeDa
     const date = new Date(row[dateCol]);
 
     if ((status === 'Paid' || status === 'paid') && (currency === 'usd' || currency === 'USD') && amount > 0) {
-      if (!cohortCustomerTransactions.has(cid)) {
-        cohortCustomerTransactions.set(cid, []);
-      }
-      cohortCustomerTransactions.get(cid).push({ amount, date, status, currency });
-    }
-  });
-
-  // STEP 2: Identify TRIAL customers (first payment $0.90-$1.10)
-  cohortCustomerTransactions.forEach((transactions, cid) => {
-    // Sort by date to find first payment
-    transactions.sort((a, b) => a.date - b.date);
-    
-    const firstPayment = transactions[0];
-    if (firstPayment.amount >= 0.90 && firstPayment.amount <= 1.10) {
-      allTrialCustomers.set(cid, firstPayment.date);
-    }
-  });
-
-  // STEP 3: Identify PAID customers (STRICT DEFINITION)
-  // A user is "Paid Customer" ONLY if ALL criteria met:
-  // 1. Status = "Paid" (case-insensitive) - already filtered
-  // 2. Currency = "USD" (case-insensitive) - already filtered
-  // 3. Amount > $2.00 (strictly greater, excludes trials)
-  // 4. Payment occurs >7 days after Trial Start Date
-  const strictPaidCustomers = new Set();
-  const allCustomerPaymentCount = new Map();
-  
-  allTrialCustomers.forEach((trialDate, cid) => {
-    const transactions = cohortCustomerTransactions.get(cid) || [];
-    let subscriptionPaymentCount = 0;
-    let hasPaidSubscription = false;
-    
-    transactions.forEach(tx => {
-      // Check if this is a subscription payment (>$2.00)
-      if (tx.amount > 2.00) {
-        const daysSinceTrial = Math.floor((tx.date - trialDate) / (1000 * 60 * 60 * 24));
-        
-        // Check if payment is >7 days after trial
-        if (daysSinceTrial > 7) {
-          hasPaidSubscription = true;
-          subscriptionPaymentCount++;
+      // Track trial payments ($0.99)
+      if (amount >= 0.90 && amount <= 1.10) {
+        if (!allTrialCustomers.has(cid)) {
+          allTrialCustomers.set(cid, date);
         }
       }
-    });
-    
-    // Only mark as paid if they have at least one qualifying payment
-    if (hasPaidSubscription) {
-      strictPaidCustomers.add(cid);
-      allCustomerPaymentCount.set(cid, subscriptionPaymentCount);
+      
+      // FIXED: Include ALL paying customers (even $0.99 trial-only)
+      // This ensures LTV denominator includes trial-only churners
+      if (!allPaidCustomers.has(cid)) {
+        allPaidCustomers.set(cid, date);
+      }
+      
+      // Track multiple payments (for secondPlusPaid metric)
+      // Only count payments > $2 as "subscription" payments
+      if (amount > 2.00) {
+        allCustomerPaymentCount.set(cid, (allCustomerPaymentCount.get(cid) || 0) + 1);
+      }
     }
   });
 
-  // STEP 4: Create cohort buckets by trial start WEEK
   allTrialCustomers.forEach((trialDate, customerId) => {
-    // Calculate week number: YYYY-WXX format
-    const startOfYear = new Date(trialDate.getUTCFullYear(), 0, 1);
-    const daysSinceYearStart = Math.floor((trialDate - startOfYear) / (1000 * 60 * 60 * 24));
-    const weekNumber = Math.ceil((daysSinceYearStart + 1) / 7);
-    const cohortKey = `${trialDate.getUTCFullYear()}-W${String(weekNumber).padStart(2, '0')}`;
+    const cohortKey = `${trialDate.getUTCFullYear()}-${String(trialDate.getUTCMonth() + 1).padStart(2, '0')}`;
     
     if (!cohortBuckets[cohortKey]) {
       cohortBuckets[cohortKey] = {
@@ -463,23 +426,19 @@ const processData = (data, stripeFeePercent = 2.9, adSpendData = {}, dateRangeDa
         secondPlusPaid: new Set(),
         revenue: {}, active: {}, gross: {}, refunded: {}, stripeFees: {},
         year: trialDate.getUTCFullYear(),
-        weekNumber: weekNumber,
-        startDate: trialDate
+        month: trialDate.getUTCMonth()
       };
     }
     
     cohortBuckets[cohortKey].trials.add(customerId);
     
-    // Active trials: started within last 7 days AND not yet converted to paid
-    if (trialDate >= activeTrialThreshold && !strictPaidCustomers.has(customerId)) {
+    if (trialDate >= activeTrialThreshold && !allPaidCustomers.has(customerId)) {
       cohortBuckets[cohortKey].activeTrials.add(customerId);
     }
     
-    // Add to paid customers if they meet criteria
-    if (strictPaidCustomers.has(customerId)) {
+    if (allPaidCustomers.has(customerId)) {
       cohortBuckets[cohortKey].paidCustomers.add(customerId);
       
-      // Second+ paid: customers with 2 or more subscription payments (> $2.00)
       if ((allCustomerPaymentCount.get(customerId) || 0) >= 2) {
         cohortBuckets[cohortKey].secondPlusPaid.add(customerId);
       }
@@ -502,19 +461,14 @@ const processData = (data, stripeFeePercent = 2.9, adSpendData = {}, dateRangeDa
       const trialStartDate = allTrialCustomers.get(cid);
       if (!trialStartDate) return;
 
-      // Calculate cohort key using weeks
-      const startOfYear = new Date(trialStartDate.getUTCFullYear(), 0, 1);
-      const daysSinceYearStart = Math.floor((trialStartDate - startOfYear) / (1000 * 60 * 60 * 24));
-      const weekNumber = Math.ceil((daysSinceYearStart + 1) / 7);
-      const cohortKey = `${trialStartDate.getUTCFullYear()}-W${String(weekNumber).padStart(2, '0')}`;
+      const cohortKey = `${trialStartDate.getUTCFullYear()}-${String(trialStartDate.getUTCMonth() + 1).padStart(2, '0')}`;
       
       if (!cohortBuckets[cohortKey]) return;
 
-      // Calculate weeks since trial (W0, W1, W2, etc.)
-      const daysSinceTrial = Math.floor((txDate - trialStartDate) / (1000 * 60 * 60 * 24));
-      const timeIndex = Math.floor(daysSinceTrial / 7);
+      const timeIndex = (txDate.getUTCFullYear() - trialStartDate.getUTCFullYear()) * 12 + 
+                        (txDate.getUTCMonth() - trialStartDate.getUTCMonth());
 
-      if (timeIndex < 0 || timeIndex > 52) return; // 52 weeks = 1 year
+      if (timeIndex < 0 || timeIndex > 12) return;
 
       const stripeFee = amount * (stripeFeePercent / 100);
       const net = amount - stripeFee;
@@ -554,19 +508,14 @@ const processData = (data, stripeFeePercent = 2.9, adSpendData = {}, dateRangeDa
       const trialStartDate = allTrialCustomers.get(cid);
       if (!trialStartDate) return;
 
-      // Calculate cohort key using weeks
-      const startOfYear = new Date(trialStartDate.getUTCFullYear(), 0, 1);
-      const daysSinceYearStart = Math.floor((trialStartDate - startOfYear) / (1000 * 60 * 60 * 24));
-      const weekNumber = Math.ceil((daysSinceYearStart + 1) / 7);
-      const cohortKey = `${trialStartDate.getUTCFullYear()}-W${String(weekNumber).padStart(2, '0')}`;
+      const cohortKey = `${trialStartDate.getUTCFullYear()}-${String(trialStartDate.getUTCMonth() + 1).padStart(2, '0')}`;
       
       if (!cohortBuckets[cohortKey]) return;
 
-      // Calculate weeks since trial
-      const daysSinceTrial = Math.floor((txDate - trialStartDate) / (1000 * 60 * 60 * 24));
-      const timeIndex = Math.floor(daysSinceTrial / 7);
+      const timeIndex = (txDate.getUTCFullYear() - trialStartDate.getUTCFullYear()) * 12 + 
+                        (txDate.getUTCMonth() - trialStartDate.getUTCMonth());
 
-      if (timeIndex < 0 || timeIndex > 52) return;
+      if (timeIndex < 0 || timeIndex > 12) return;
 
       if (!cohortBuckets[cohortKey].refunded[timeIndex]) {
         cohortBuckets[cohortKey].refunded[timeIndex] = 0;
@@ -582,10 +531,8 @@ const processData = (data, stripeFeePercent = 2.9, adSpendData = {}, dateRangeDa
   const cohortKeys = Object.keys(cohortBuckets).sort();
   const cohortTable = cohortKeys.map(cohortKey => {
     const bucket = cohortBuckets[cohortKey];
-    
-    // Future guard based on weeks elapsed since cohort start
-    const weeksSinceCohort = Math.floor((maxDate - bucket.startDate) / (1000 * 60 * 60 * 24 * 7));
-    const futureGuard = weeksSinceCohort;
+    const cohortMonthCode = bucket.year * 12 + bucket.month;
+    const futureGuard = currentGlobalMonthCode - cohortMonthCode;
     
     const trials = bucket.trials.size;
     const activeTrialsCount = bucket.activeTrials.size;
@@ -598,11 +545,11 @@ const processData = (data, stripeFeePercent = 2.9, adSpendData = {}, dateRangeDa
     let cumulativeStripeFees = 0;
     let cumulativeRefunds = 0;
 
-    for (let w = 0; w <= 52; w++) { // 52 weeks = 1 year
-      if (w <= futureGuard) {
-        const gross = bucket.gross[w] || 0;
-        const stripeFee = bucket.stripeFees[w] || 0;
-        const refunded = bucket.refunded[w] || 0;
+    for (let m = 0; m <= 12; m++) {
+      if (m <= futureGuard) {
+        const gross = bucket.gross[m] || 0;
+        const stripeFee = bucket.stripeFees[m] || 0;
+        const refunded = bucket.refunded[m] || 0;
         
         cumulativeRevenue += (gross - stripeFee - refunded);
         cumulativeGross += gross;
@@ -638,77 +585,33 @@ const processData = (data, stripeFeePercent = 2.9, adSpendData = {}, dateRangeDa
     };
   });
 
-  // LTV Waterfalls - TWO TYPES (by WEEKS)
-  
-  // TABLE A: Acquisition LTV (Revenue / Total TRIALS)
-  // Target: ~$48 - How much is a raw LEAD worth?
-  const acquisitionLtvWaterfall = cohortKeys.map(cohortKey => {
+  // LTV & Retention Waterfalls
+  const ltvWaterfall = cohortKeys.map(cohortKey => {
     const bucket = cohortBuckets[cohortKey];
-    const weeksSinceCohort = Math.floor((maxDate - bucket.startDate) / (1000 * 60 * 60 * 24 * 7));
-    const futureGuard = weeksSinceCohort;
+    const cohortMonthCode = bucket.year * 12 + bucket.month;
+    const futureGuard = currentGlobalMonthCode - cohortMonthCode;
     
-    const row = { 
-      cohort: cohortKey, 
-      trials: bucket.trials.size,
-      paidSubs: bucket.paidCustomers.size,
-      conversionRate: bucket.trials.size > 0 ? ((bucket.paidCustomers.size / bucket.trials.size) * 100).toFixed(1) : '0.0'
-    };
+    const row = { cohort: cohortKey, size: bucket.paidCustomers.size };
     
-    // Calculate for W0, W1, W2 ... W52 (52 weeks = 1 year)
-    for (let w = 0; w <= 52; w++) {
-      if (w > futureGuard) {
-        row[`w${w}`] = null;
+    for (let m = 0; m <= 6; m++) {
+      if (m > futureGuard) {
+        row[`m${m}`] = null;
       } else {
         let cumulative = 0;
-        for (let i = 0; i <= w; i++) {
+        for (let i = 0; i <= m; i++) {
           const gross = bucket.gross[i] || 0;
           const stripeFee = bucket.stripeFees[i] || 0;
           const refunded = bucket.refunded[i] || 0;
           cumulative += (gross - stripeFee - refunded);
         }
-        // Acquisition LTV = Revenue / ALL TRIALS (not just paid)
-        const ltv = bucket.trials.size > 0 ? (cumulative / bucket.trials.size).toFixed(2) : '0.00';
-        row[`w${w}`] = ltv;
-      }
-    }
-    
-    return row;
-  });
-  
-  // TABLE B: Subscriber LTV (Revenue / PAID SUBSCRIBERS ONLY)
-  // Target: ~$140 - How much is a CONVERTED USER worth?
-  const subscriberLtvWaterfall = cohortKeys.map(cohortKey => {
-    const bucket = cohortBuckets[cohortKey];
-    const weeksSinceCohort = Math.floor((maxDate - bucket.startDate) / (1000 * 60 * 60 * 24 * 7));
-    const futureGuard = weeksSinceCohort;
-    
-    const row = { 
-      cohort: cohortKey, 
-      size: bucket.paidCustomers.size 
-    };
-    
-    // Calculate for W0, W1, W2 ... W52 (52 weeks = 1 year)
-    for (let w = 0; w <= 52; w++) {
-      if (w > futureGuard) {
-        row[`w${w}`] = null;
-      } else {
-        let cumulative = 0;
-        for (let i = 0; i <= w; i++) {
-          const gross = bucket.gross[i] || 0;
-          const stripeFee = bucket.stripeFees[i] || 0;
-          const refunded = bucket.refunded[i] || 0;
-          cumulative += (gross - stripeFee - refunded);
-        }
-        // Subscriber LTV = Revenue / PAID SUBSCRIBERS (who converted)
         const ltv = bucket.paidCustomers.size > 0 ? (cumulative / bucket.paidCustomers.size).toFixed(2) : '0.00';
-        row[`w${w}`] = ltv;
+        row[`m${m}`] = ltv;
       }
     }
     
     return row;
   });
 
-  // TABLE C: Retention Waterfall
   const retentionWaterfall = cohortKeys.map(cohortKey => {
     const bucket = cohortBuckets[cohortKey];
     const cohortMonthCode = bucket.year * 12 + bucket.month;
@@ -757,36 +660,6 @@ const processData = (data, stripeFeePercent = 2.9, adSpendData = {}, dateRangeDa
     return row;
   });
 
-  // CHURN COHORT ANALYSIS
-  // Calculate month-over-month churn rates
-  const churnWaterfall = cohortKeys.map(cohortKey => {
-    const bucket = cohortBuckets[cohortKey];
-    const cohortMonthCode = bucket.year * 12 + bucket.month;
-    const futureGuard = currentGlobalMonthCode - cohortMonthCode;
-    
-    const row = { cohort: cohortKey, size: bucket.paidCustomers.size };
-    
-    // Start at M1 (M0 is acquisition, typically 100%)
-    for (let m = 1; m <= 6; m++) {
-      if (m > futureGuard) {
-        row[`m${m}`] = null;
-      } else {
-        const previousMonth = bucket.active[m - 1]?.size || 0;
-        const currentMonth = bucket.active[m]?.size || 0;
-        
-        if (previousMonth === 0) {
-          row[`m${m}`] = '0.0';
-        } else {
-          // Churn = (Previous - Current) / Previous * 100
-          const churnRate = ((previousMonth - currentMonth) / previousMonth * 100);
-          row[`m${m}`] = churnRate.toFixed(1);
-        }
-      }
-    }
-    
-    return row;
-  });
-
   // Spend vs Revenue Chart
   const spendVsRevenue = cohortKeys.map(cohortKey => {
     const bucket = cohortBuckets[cohortKey];
@@ -827,10 +700,8 @@ const processData = (data, stripeFeePercent = 2.9, adSpendData = {}, dateRangeDa
       percent: totalConverted > 0 ? ((count / totalConverted) * 100).toFixed(1) : 0
     })),
     refundBreakdown,
-    acquisitionLtvWaterfall,
-    subscriberLtvWaterfall,
+    ltvWaterfall,
     retentionWaterfall,
-    churnWaterfall,
     spendVsRevenue
   };
 };
@@ -839,7 +710,7 @@ const processData = (data, stripeFeePercent = 2.9, adSpendData = {}, dateRangeDa
 
 export default function WellnessDashboard() {
   const [rawData, setRawData] = useState(null);
-  const [stripeFeePercent, setStripeFeePercent] = useState(2.9);
+  const [stripeFeePercent, setStripeFeePercent] = useState(7.5);
   const [adSpendData, setAdSpendData] = useState({});
   const [dateRangeDays, setDateRangeDays] = useState(null);
   const [columnOrder, setColumnOrder] = useState(DEFAULT_COLUMN_ORDER);
@@ -2412,26 +2283,11 @@ export default function WellnessDashboard() {
                       
                       // Subscription breakdown (payments > $2)
                       if (amount > 2.00) {
-                        // Use product name from CSV if available, otherwise use amount-based naming
-                        let subType;
-                        if (product && product !== 'Standard' && product.trim() !== '') {
-                          // Use actual product name from Stripe
-                          subType = `${product} ($${amount.toFixed(2)})`;
-                        } else {
-                          // Fallback to amount-based categories
-                          if (amount >= 0.90 && amount <= 1.10) {
-                            subType = 'Trial ($0.99)';
-                          } else if (amount >= 40 && amount <= 60) {
-                            subType = 'Monthly ($49.99)';
-                          } else if (amount >= 280 && amount <= 320) {
-                            subType = 'Annual ($299.99)';
-                          } else if (amount >= 140 && amount <= 160) {
-                            subType = 'Quarterly ($149.99)';
-                          } else {
-                            subType = `Custom Plan ($${amount.toFixed(2)})`;
-                          }
-                        }
-                        
+                        const subType = amount >= 0.90 && amount <= 1.10 ? 'Trial ($0.99)' : 
+                                       amount >= 40 && amount <= 60 ? 'Monthly ($49.99)' :
+                                       amount >= 280 && amount <= 320 ? 'Annual ($299.99)' :
+                                       amount >= 140 && amount <= 160 ? 'Quarterly ($149.99)' :
+                                       `Other ($${amount.toFixed(0)})`;
                         subscriptionTypes.set(subType, (subscriptionTypes.get(subType) || 0) + 1);
                         
                         if (product) {
@@ -3690,123 +3546,49 @@ export default function WellnessDashboard() {
               </div>
 
               {/* LTV WATERFALL */}
-              {/* ACQUISITION LTV WATERFALL - Table A */}
-              <Section title="Acquisition LTV ($) - Revenue per TRIAL" icon={<DollarSign className="text-blue-400" />}>
-                <div className="p-4 bg-blue-900/20 border border-blue-800 rounded-lg mb-4">
-                  <div className="flex items-start gap-3">
-                    <Info className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
-                    <div>
-                      <h4 className="font-semibold text-blue-300 mb-1">What is Acquisition LTV?</h4>
-                      <p className="text-sm text-blue-200">
-                        <strong>Formula:</strong> Cumulative Net Revenue / Total TRIALS
-                      </p>
-                      <p className="text-sm text-blue-200 mt-1">
-                        <strong>Target:</strong> ~$48 - Shows how much a raw LEAD is worth (includes non-converters)
-                      </p>
-                    </div>
-                  </div>
-                </div>
-                <div className="overflow-x-auto p-2">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="text-gray-500 border-b border-gray-800">
-                        <th className="p-2 font-medium text-left">Cohort</th>
-                        <th className="p-2 font-medium text-left">Trials</th>
-                        <th className="p-2 font-medium text-left">Conv%</th>
-                        {[0,1,2,3,4,5,6,7,8,9,10,11,12].map(m => (
-                          <th key={m} className="p-2 font-medium text-center">M{m}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.acquisitionLtvWaterfall.slice().reverse().map((row, i) => (
-                        <tr key={i} className="border-b border-gray-800">
-                          <td className="p-2 font-mono text-blue-300/80">{row.cohort}</td>
-                          <td className="p-2 text-gray-400">{row.trials}</td>
-                          <td className="p-2 text-gray-400">{row.conversionRate}%</td>
-                          {[0,1,2,3,4,5,6,7,8,9,10,11,12].map(m => {
-                            const value = row[`m${m}`];
-                            const numValue = parseFloat(value);
-                            const getBgColor = () => {
-                              if (value === null) return 'bg-gray-800';
-                              if (numValue >= 60) return 'bg-blue-500/90';
-                              if (numValue >= 40) return 'bg-blue-500/50';
-                              return 'bg-blue-500/20';
-                            };
-                            
-                            return (
-                              <td key={m} className={`p-2 text-center ${getBgColor()}`}>
-                                {value !== null 
-                                  ? <span className="font-medium text-white">${value}</span> 
-                                  : <span className="text-gray-600">-</span>}
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+              <Section title="Net LTV Waterfall ($)" icon={<DollarSign className="text-emerald-400" />}>
+              <div className="overflow-x-auto p-2">
+              <table className="w-full text-xs">
+              <thead>
+              <tr className="text-gray-500 border-b border-gray-800">
+              <th className="p-2 font-medium text-left">Cohort</th>
+              <th className="p-2 font-medium text-left">Paid</th>
+                  {[0,1,2,3,4,5,6].map(m => (
+              <th key={m} className="p-2 font-medium text-center">M{m}</th>
+                  ))}
+              </tr>
+              </thead>
+              <tbody>
+                {data.ltvWaterfall.map((row, i) => (
+              <tr key={i} className="border-b border-gray-800">
+              <td className="p-2 font-mono text-emerald-300/80">{row.cohort}</td>
+              <td className="p-2 text-gray-400">{row.size}</td>
+                    {[0,1,2,3,4,5,6].map(m => {
+                      const value = row[`m${m}`];
+                      const numValue = parseFloat(value);
+                      const getBgColor = () => {
+                        if (value === null) return 'bg-gray-800';
+                        if (numValue >= 100) return 'bg-emerald-500/90';
+                        if (numValue >= 50) return 'bg-emerald-500/50';
+                        return 'bg-emerald-500/20';
+            };
+                      
+                      return (
+              <td key={m} className={`p-2 text-center ${getBgColor()}`}>
+                          {value !== null 
+                            ? <span className="font-medium text-white">${value}</span> 
+                            : <span className="text-gray-600">-</span>}
+              </td>
+                      );
+            })}
+              </tr>
+                ))}
+              </tbody>
+              </table>
+              </div>
               </Section>
 
-              {/* SUBSCRIBER LTV WATERFALL - Table B */}
-              <Section title="Subscriber LTV ($) - Revenue per PAID SUBSCRIBER" icon={<DollarSign className="text-emerald-400" />}>
-                <div className="p-4 bg-emerald-900/20 border border-emerald-800 rounded-lg mb-4">
-                  <div className="flex items-start gap-3">
-                    <Info className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
-                    <div>
-                      <h4 className="font-semibold text-emerald-300 mb-1">What is Subscriber LTV?</h4>
-                      <p className="text-sm text-emerald-200">
-                        <strong>Formula:</strong> Cumulative Net Revenue / Total PAID SUBSCRIBERS
-                      </p>
-                      <p className="text-sm text-emerald-200 mt-1">
-                        <strong>Target:</strong> ~$140 - Shows how much a CONVERTED user is worth (paid subs only)
-                      </p>
-                    </div>
-                  </div>
-                </div>
-                <div className="overflow-x-auto p-2">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="text-gray-500 border-b border-gray-800">
-                        <th className="p-2 font-medium text-left">Cohort</th>
-                        <th className="p-2 font-medium text-left">Paid</th>
-                        {[0,1,2,3,4,5,6,7,8,9,10,11,12].map(m => (
-                          <th key={m} className="p-2 font-medium text-center">M{m}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.subscriberLtvWaterfall.slice().reverse().map((row, i) => (
-                        <tr key={i} className="border-b border-gray-800">
-                          <td className="p-2 font-mono text-emerald-300/80">{row.cohort}</td>
-                          <td className="p-2 text-gray-400">{row.size}</td>
-                          {[0,1,2,3,4,5,6,7,8,9,10,11,12].map(m => {
-                            const value = row[`m${m}`];
-                            const numValue = parseFloat(value);
-                            const getBgColor = () => {
-                              if (value === null) return 'bg-gray-800';
-                              if (numValue >= 150) return 'bg-emerald-500/90';
-                              if (numValue >= 100) return 'bg-emerald-500/50';
-                              return 'bg-emerald-500/20';
-                            };
-                            
-                            return (
-                              <td key={m} className={`p-2 text-center ${getBgColor()}`}>
-                                {value !== null 
-                                  ? <span className="font-medium text-white">${value}</span> 
-                                  : <span className="text-gray-600">-</span>}
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </Section>
-
-              {/* RETENTION WATERFALL - Table C */}
+              {/* RETENTION WATERFALL */}
               <Section title="Retention Waterfall (% Active)" icon={<Users className="text-blue-400" />}>
               <div className="overflow-x-auto p-2">
               <table className="w-full text-xs">
@@ -3847,65 +3629,6 @@ export default function WellnessDashboard() {
               </tbody>
               </table>
               </div>
-              </Section>
-
-              {/* CHURN COHORT ANALYSIS */}
-              <Section title="Monthly Churn Rate (%) - Cohort View" icon={<TrendingDown className="text-red-400" />}>
-                <div className="overflow-x-auto">
-                  <table className="w-full border-collapse text-sm">
-                    <thead>
-                      <tr className="bg-gray-900 border-b border-gray-700">
-                        <th className="sticky left-0 bg-gray-900 z-10 text-left px-4 py-3 text-gray-300 font-semibold border-r border-gray-700">Cohort</th>
-                        <th className="px-4 py-3 text-gray-300 font-semibold">M1</th>
-                        <th className="px-4 py-3 text-gray-300 font-semibold">M2</th>
-                        <th className="px-4 py-3 text-gray-300 font-semibold">M3</th>
-                        <th className="px-4 py-3 text-gray-300 font-semibold">M4</th>
-                        <th className="px-4 py-3 text-gray-300 font-semibold">M5</th>
-                        <th className="px-4 py-3 text-gray-300 font-semibold">M6</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.churnWaterfall.slice().reverse().map((row, idx) => (
-                        <tr key={idx} className="border-b border-gray-800 hover:bg-gray-800/50 transition-colors">
-                          <td className="sticky left-0 bg-gray-900 z-10 px-4 py-3 font-semibold text-white border-r border-gray-700">
-                            {row.cohort}
-                          </td>
-                          {['m1', 'm2', 'm3', 'm4', 'm5', 'm6'].map(month => {
-                            const value = row[month];
-                            if (value === null) {
-                              return <td key={month} className="px-4 py-3 text-center text-gray-600">—</td>;
-                            }
-                            const churnRate = parseFloat(value);
-                            // Color code: Green (low churn <15%), Yellow (medium 15-30%), Red (high >30%)
-                            let colorClass = 'text-green-400';
-                            if (churnRate >= 30) colorClass = 'text-red-400';
-                            else if (churnRate >= 15) colorClass = 'text-yellow-400';
-                            
-                            return (
-                              <td key={month} className={`px-4 py-3 text-center font-semibold ${colorClass}`}>
-                                {value}%
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="mt-4 p-4 bg-red-900/20 border border-red-800 rounded-lg">
-                  <div className="flex items-start gap-3">
-                    <Info className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
-                    <div>
-                      <h4 className="font-semibold text-red-300 mb-1">Understanding Churn Rates</h4>
-                      <div className="text-sm text-red-200">
-                        <p><span className="text-green-400">● Green (&lt;15%)</span> - Healthy retention</p>
-                        <p><span className="text-yellow-400">● Yellow (15-30%)</span> - Monitor closely</p>
-                        <p><span className="text-red-400">● Red (&gt;30%)</span> - High churn risk</p>
-                        <p className="mt-2">Formula: Churn(M) = (Active Users M-1 - Active Users M) / Active Users M-1 × 100</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
               </Section>
 
               {/* SPEND VS REVENUE */}
